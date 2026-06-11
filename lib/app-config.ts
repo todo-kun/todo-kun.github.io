@@ -1,7 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
+import { decryptJson, encryptJson } from "@/lib/crypto";
 
 const appConfigFileName = "app-config.json";
+const appConfigCookieName = "todokun_app_config";
 
 export type AppConfig = {
   googleClientId: string;
@@ -39,8 +43,39 @@ const emptyConfig: AppConfig = {
   appSecret: ""
 };
 
+function shouldUseCookieConfig() {
+  return process.env.APP_CONFIG_PROVIDER === "cookie" || process.env.NODE_ENV === "production";
+}
+
+function getCookieEncryptionSecret() {
+  return process.env.APP_SECRET ?? "";
+}
+
+async function readCookieConfig(): Promise<Partial<AppConfig>> {
+  try {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get(appConfigCookieName)?.value;
+
+    if (!raw) {
+      return {};
+    }
+
+    const secret = getCookieEncryptionSecret();
+
+    if (!secret) {
+      return {};
+    }
+
+    return decryptJson<Partial<AppConfig>>(raw, secret);
+  } catch {
+    return {};
+  }
+}
+
 export async function getAppConfig(): Promise<AppConfig> {
-  const saved = await readJsonFile<Partial<AppConfig>>(appConfigFileName, {});
+  const saved = shouldUseCookieConfig()
+    ? await readCookieConfig()
+    : await readJsonFile<Partial<AppConfig>>(appConfigFileName, {});
 
   return {
     googleClientId: saved.googleClientId ?? process.env.GOOGLE_CLIENT_ID ?? emptyConfig.googleClientId,
@@ -73,7 +108,9 @@ export async function getPublicAppConfig(): Promise<PublicAppConfig> {
 
 export async function saveAppConfig(input: Partial<AppConfig>) {
   const current = await getAppConfig();
-  const nextAppSecret = input.appSecret || current.appSecret || generateAppSecret();
+  const nextAppSecret = shouldUseCookieConfig()
+    ? current.appSecret || process.env.APP_SECRET || input.appSecret || ""
+    : input.appSecret || current.appSecret || generateAppSecret();
   const next: AppConfig = {
     ...current,
     ...input,
@@ -81,8 +118,54 @@ export async function saveAppConfig(input: Partial<AppConfig>) {
     appSecret: nextAppSecret
   };
 
+  if (shouldUseCookieConfig()) {
+    if (!getCookieEncryptionSecret()) {
+      throw new Error("Set APP_SECRET in Vercel before saving settings in production.");
+    }
+
+    return {
+      config: getPublicConfigFromValue(next),
+      fullConfig: next
+    };
+  }
+
   await writeJsonFile(appConfigFileName, next);
-  return getPublicAppConfig();
+  return {
+    config: getPublicConfigFromValue(next),
+    fullConfig: next
+  };
+}
+
+export function attachAppConfigCookie(response: NextResponse, config: AppConfig) {
+  if (!shouldUseCookieConfig()) {
+    return;
+  }
+
+  const secret = getCookieEncryptionSecret();
+
+  if (!secret) {
+    throw new Error("Set APP_SECRET in Vercel before saving settings in production.");
+  }
+
+  response.cookies.set(appConfigCookieName, encryptJson(config, secret), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30
+  });
+}
+
+function getPublicConfigFromValue(config: AppConfig): PublicAppConfig {
+  return {
+    googleClientId: config.googleClientId,
+    googleRedirectUri: config.googleRedirectUri,
+    googleCalendarId: config.googleCalendarId,
+    googleTasksListId: config.googleTasksListId,
+    appUrl: config.appUrl,
+    googleClientSecretConfigured: Boolean(config.googleClientSecret),
+    appSecretConfigured: Boolean(config.appSecret)
+  };
 }
 
 export async function hasAppConfig() {

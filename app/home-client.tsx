@@ -62,6 +62,11 @@ type BackupResponse = {
   };
 };
 
+type ApiErrorResponse = {
+  ok: false;
+  error?: string;
+};
+
 const syncLabels = {
   synced: "連携済み",
   not_connected: "Google 未接続",
@@ -95,6 +100,32 @@ const emptySettingsHealth = {
   appSecret: false,
   readyForGoogleConnect: false
 };
+
+async function readApiJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+
+  if (!text) {
+    throw new Error("サーバーから空の応答が返りました。");
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("サーバー応答を読み取れませんでした。");
+  }
+}
+
+function getApiErrorMessage(result: unknown, fallback: string) {
+  if (result && typeof result === "object" && "error" in result) {
+    const candidate = result as { error?: unknown };
+
+    if (typeof candidate.error === "string" && candidate.error) {
+      return candidate.error;
+    }
+  }
+
+  return fallback;
+}
 
 export function HomeClient({
   initialMessage,
@@ -141,21 +172,21 @@ export function HomeClient({
 
   async function refreshStatus() {
     const response = await fetch("/api/google/status", { cache: "no-store" });
-    const result = (await response.json()) as GoogleStatus;
+    const result = await readApiJson<GoogleStatus>(response);
     setGoogleStatus(result);
   }
 
   async function refreshTasks() {
     startLoadingTransition(async () => {
       const response = await fetch("/api/tasks", { cache: "no-store" });
-      const result = (await response.json()) as TasksResponse;
+      const result = await readApiJson<TasksResponse>(response);
       setTasks(result.tasks);
     });
   }
 
   async function refreshSettings() {
     const response = await fetch("/api/settings", { cache: "no-store" });
-    const result = (await response.json()) as SettingsResponse;
+    const result = await readApiJson<SettingsResponse>(response);
 
     setSettingsForm((current) => ({
       ...current,
@@ -175,7 +206,7 @@ export function HomeClient({
 
   async function refreshSettingsHealth() {
     const response = await fetch("/api/settings/health", { cache: "no-store" });
-    const result = (await response.json()) as SettingsHealthResponse;
+    const result = await readApiJson<SettingsHealthResponse>(response);
     setSettingsHealth(result.health);
   }
 
@@ -198,9 +229,9 @@ export function HomeClient({
           })
         });
 
-        const result = (await response.json()) as TaskMutationResponse;
+        const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
 
-        if (!response.ok || !result.task) {
+        if (!response.ok || !("task" in result) || !result.task) {
           throw new Error(result.error ?? "Task could not be saved.");
         }
 
@@ -244,10 +275,10 @@ export function HomeClient({
           body: JSON.stringify(settingsForm)
         });
 
-        const result = (await response.json()) as SettingsResponse;
+        const result = await readApiJson<SettingsResponse | ApiErrorResponse>(response);
 
-        if (!response.ok) {
-          throw new Error("Settings could not be saved.");
+        if (!response.ok || !("config" in result)) {
+          throw new Error(getApiErrorMessage(result, "Settings could not be saved."));
         }
 
         setSettingsConfigured({
@@ -294,7 +325,7 @@ export function HomeClient({
         const response = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
 
         if (!response.ok) {
-          const result = (await response.json()) as TaskMutationResponse;
+          const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
           throw new Error(result.error ?? "Task could not be deleted.");
         }
 
@@ -337,9 +368,9 @@ export function HomeClient({
         }
       );
 
-      const result = (await response.json()) as TaskMutationResponse;
+      const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
 
-      if (!response.ok || !result.task) {
+      if (!response.ok || !("task" in result) || !result.task) {
         throw new Error(result.error ?? "Task action failed.");
       }
 
@@ -366,10 +397,10 @@ export function HomeClient({
 
       try {
         const response = await fetch("/api/tasks/sync", { method: "POST" });
-        const result = (await response.json()) as BulkSyncResponse;
+        const result = await readApiJson<BulkSyncResponse | ApiErrorResponse>(response);
 
-        if (!response.ok) {
-          throw new Error("Bulk sync could not be completed.");
+        if (!response.ok || !("tasks" in result)) {
+          throw new Error(getApiErrorMessage(result, "Bulk sync could not be completed."));
         }
 
         if (result.tasks.length === 0) {
@@ -392,10 +423,10 @@ export function HomeClient({
 
       try {
         const response = await fetch("/api/backup", { cache: "no-store" });
-        const result = (await response.json()) as BackupResponse;
+        const result = await readApiJson<BackupResponse | ApiErrorResponse>(response);
 
-        if (!response.ok) {
-          throw new Error("Backup export could not be created.");
+        if (!response.ok || !("backup" in result)) {
+          throw new Error(getApiErrorMessage(result, "Backup export could not be created."));
         }
 
         const blob = new Blob([JSON.stringify(result.backup, null, 2)], {
@@ -436,9 +467,11 @@ export function HomeClient({
           body: text
         });
 
-        const result = (await response.json()) as BulkSyncResponse & { error?: string };
+        const result = await readApiJson<(BulkSyncResponse & { error?: string }) | ApiErrorResponse>(
+          response
+        );
 
-        if (!response.ok) {
+        if (!response.ok || !("tasks" in result)) {
           throw new Error(result.error ?? "Backup import failed.");
         }
 

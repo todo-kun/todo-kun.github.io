@@ -1,0 +1,12 @@
+.next/
+node_modules/
+.env
+.env.local
+dist/
+coverage/
+*.log
+tsconfig.tsbuildinfo
+data/*.json
+.codex-dev.log
+.codex-dev.err.log
+.test-workspace/

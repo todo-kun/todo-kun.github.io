@@ -15,6 +15,7 @@ beforeEach(async () => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GOOGLE_REDIRECT_URI;
   delete process.env.APP_SECRET;
+  delete process.env.TASK_STORAGE_PROVIDER;
 });
 
 afterEach(async () => {

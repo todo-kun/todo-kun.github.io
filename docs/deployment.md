@@ -18,6 +18,7 @@ For long-term production use on Vercel, replace this file-based storage with a d
 5. Set the production domain or Vercel URL
 6. Open the app settings screen in the deployed app
 7. Save:
+   - Task Storage Provider
    - Google Client ID
    - Google Client Secret
    - Redirect URI
@@ -26,6 +27,10 @@ For long-term production use on Vercel, replace this file-based storage with a d
    - App URL
    - App Secret
 8. Update the Google OAuth redirect URI in Google Cloud to match production
+
+## Suggested production value
+
+- `TASK_STORAGE_PROVIDER=google`
 
 ## After deploy
 

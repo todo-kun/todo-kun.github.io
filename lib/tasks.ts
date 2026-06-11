@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
 import {
+  createGoogleBackedTask,
   deleteTaskFromGoogle,
+  listGoogleBackedTasks,
+  syncGoogleBackedTask,
   syncStoredTaskToGoogle,
   syncTaskToGoogle,
   type GoogleTokens
@@ -10,20 +13,32 @@ import type { TaskInput, TaskRecord } from "@/types/task";
 
 const tasksFileName = "tasks.json";
 
+function getTaskStorageProvider() {
+  return process.env.TASK_STORAGE_PROVIDER === "google" ? "google" : "local";
+}
+
 export type TaskBackup = {
   exportedAt: string;
   version: 1;
   tasks: TaskRecord[];
 };
 
-export async function listTasks() {
+export async function listTasks(session: GoogleTokens | null = null) {
+  if (getTaskStorageProvider() === "google") {
+    return listGoogleBackedTasks(session);
+  }
+
   const tasks = await readJsonFile<TaskRecord[]>(tasksFileName, []);
   return tasks.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function createTaskAndSync(input: TaskInput, session: GoogleTokens | null) {
+  if (getTaskStorageProvider() === "google") {
+    return createGoogleBackedTask(input, session);
+  }
+
   const syncResult = await syncTaskToGoogle(input, session);
-  const tasks = await listTasks();
+  const tasks = await listTasks(session);
   const timestamp = new Date().toISOString();
 
   const task: TaskRecord = {
@@ -58,7 +73,27 @@ export async function updateTaskAndSync(
   input: TaskInput & { completed?: boolean },
   session: GoogleTokens | null
 ) {
-  const tasks = await listTasks();
+  if (getTaskStorageProvider() === "google") {
+    const tasks = await listTasks(session);
+    const current = tasks.find((task) => task.id === taskId);
+
+    if (!current) {
+      return null;
+    }
+
+    return syncGoogleBackedTask(
+      {
+        ...current,
+        title: input.title,
+        dueDate: input.dueDate || null,
+        notes: input.notes ?? "",
+        completed: input.completed ?? current.completed
+      },
+      session
+    );
+  }
+
+  const tasks = await listTasks(session);
   const index = tasks.findIndex((task) => task.id === taskId);
 
   if (index === -1) {
@@ -91,7 +126,18 @@ export async function updateTaskAndSync(
 }
 
 export async function retryTaskSync(taskId: string, session: GoogleTokens | null) {
-  const tasks = await listTasks();
+  if (getTaskStorageProvider() === "google") {
+    const tasks = await listTasks(session);
+    const current = tasks.find((task) => task.id === taskId);
+
+    if (!current) {
+      return null;
+    }
+
+    return syncGoogleBackedTask(current, session);
+  }
+
+  const tasks = await listTasks(session);
   const index = tasks.findIndex((task) => task.id === taskId);
 
   if (index === -1) {
@@ -119,13 +165,23 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
 }
 
 export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
-  const tasks = await listTasks();
+  const tasks = await listTasks(session);
   const failedTargets = tasks.filter(
     (task) => task.calendarSync !== "synced" || task.tasksSync !== "synced"
   );
 
   if (failedTargets.length === 0) {
     return [];
+  }
+
+  if (getTaskStorageProvider() === "google") {
+    const refreshed: TaskRecord[] = [];
+
+    for (const task of failedTargets) {
+      refreshed.push(await syncGoogleBackedTask(task, session));
+    }
+
+    return refreshed;
   }
 
   const updatedTasks = [...tasks];
@@ -161,7 +217,7 @@ export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
 }
 
 export async function deleteTask(taskId: string, session: GoogleTokens | null) {
-  const tasks = await listTasks();
+  const tasks = await listTasks(session);
   const task = tasks.find((item) => item.id === taskId);
 
   if (!task) {
@@ -169,16 +225,18 @@ export async function deleteTask(taskId: string, session: GoogleTokens | null) {
   }
 
   await deleteTaskFromGoogle(task, session);
-  await writeJsonFile(
-    tasksFileName,
-    tasks.filter((item) => item.id !== taskId)
-  );
+  if (getTaskStorageProvider() === "local") {
+    await writeJsonFile(
+      tasksFileName,
+      tasks.filter((item) => item.id !== taskId)
+    );
+  }
 
   return true;
 }
 
-export async function exportTasksBackup(): Promise<TaskBackup> {
-  const tasks = await listTasks();
+export async function exportTasksBackup(session: GoogleTokens | null = null): Promise<TaskBackup> {
+  const tasks = await listTasks(session);
 
   return {
     version: 1,
@@ -187,7 +245,31 @@ export async function exportTasksBackup(): Promise<TaskBackup> {
   };
 }
 
-export async function importTasksBackup(backup: TaskBackup) {
+export async function importTasksBackup(backup: TaskBackup, session: GoogleTokens | null = null) {
+  if (getTaskStorageProvider() === "google") {
+    const normalized = [...backup.tasks].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt)
+    );
+
+    for (const task of normalized.reverse()) {
+      await createGoogleBackedTask(
+        {
+          title: task.title,
+          dueDate: task.dueDate ?? "",
+          notes: task.notes
+        },
+        session,
+        {
+          id: task.id,
+          createdAt: task.createdAt,
+          completed: task.completed
+        }
+      );
+    }
+
+    return listTasks(session);
+  }
+
   const normalized = [...backup.tasks].sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt)
   );

@@ -30,6 +30,17 @@ type SyncResult = {
   message: string;
 };
 
+type ManagedTaskMetadata = {
+  version: 1;
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  calendarEventId: string | null;
+  lastSyncAttemptedAt: string | null;
+};
+
+const taskMetadataMarker = "[TODOKUN_META]";
+
 export async function hasGoogleOAuthConfig() {
   const config = await getAppConfig();
 
@@ -130,6 +141,289 @@ async function buildAuthorizedClient(tokens: GoogleTokens) {
     token_type: tokens.token_type ?? undefined
   });
   return oauth2Client;
+}
+
+function buildManagedTaskMetadata(task: Pick<
+  TaskRecord,
+  "id" | "createdAt" | "updatedAt" | "calendarEventId" | "lastSyncAttemptedAt"
+>): ManagedTaskMetadata {
+  return {
+    version: 1,
+    id: task.id,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    calendarEventId: task.calendarEventId,
+    lastSyncAttemptedAt: task.lastSyncAttemptedAt
+  };
+}
+
+export function encodeManagedTaskNotes(
+  notes: string,
+  task: Pick<TaskRecord, "id" | "createdAt" | "updatedAt" | "calendarEventId" | "lastSyncAttemptedAt">
+) {
+  const cleanNotes = notes.trimEnd();
+  const metadata = Buffer.from(JSON.stringify(buildManagedTaskMetadata(task))).toString("base64url");
+
+  return [cleanNotes, `${taskMetadataMarker}${metadata}`].filter(Boolean).join("\n\n");
+}
+
+export function parseManagedTaskNotes(rawNotes: string | null | undefined) {
+  if (!rawNotes) {
+    return {
+      notes: "",
+      metadata: null as ManagedTaskMetadata | null
+    };
+  }
+
+  const markerIndex = rawNotes.lastIndexOf(taskMetadataMarker);
+
+  if (markerIndex === -1) {
+    return {
+      notes: rawNotes,
+      metadata: null as ManagedTaskMetadata | null
+    };
+  }
+
+  const notes = rawNotes.slice(0, markerIndex).trimEnd();
+  const encoded = rawNotes.slice(markerIndex + taskMetadataMarker.length).trim();
+
+  try {
+    const metadata = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as ManagedTaskMetadata;
+    return { notes, metadata };
+  } catch {
+    return { notes: rawNotes, metadata: null as ManagedTaskMetadata | null };
+  }
+}
+
+export async function listGoogleBackedTasks(session: GoogleTokens | null): Promise<TaskRecord[]> {
+  if (!(await hasGoogleOAuthConfig())) {
+    return [];
+  }
+
+  if (!session?.access_token && !session?.refresh_token) {
+    return [];
+  }
+
+  const auth = await buildAuthorizedClient(session);
+  const config = await getAppConfig();
+  const tasksApi = google.tasks({ version: "v1", auth });
+  const collected: TaskRecord[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const response = await tasksApi.tasks.list({
+      tasklist: config.googleTasksListId || "@default",
+      maxResults: 100,
+      showCompleted: true,
+      showHidden: true,
+      pageToken
+    });
+
+    for (const item of response.data.items ?? []) {
+      const { notes, metadata } = parseManagedTaskNotes(item.notes);
+
+      if (!metadata) {
+        continue;
+      }
+
+      collected.push({
+        id: metadata.id,
+        title: item.title ?? "Untitled task",
+        dueDate: item.due ?? null,
+        notes,
+        createdAt: metadata.createdAt,
+        updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
+        completed: item.status === "completed",
+        calendarSync: metadata.calendarEventId ? "synced" : "failed",
+        tasksSync: item.id ? "synced" : "failed",
+        calendarSyncMessage: metadata.calendarEventId
+          ? "Calendar synced successfully."
+          : "Calendar sync needs attention.",
+        tasksSyncMessage: item.id
+          ? "Google Tasks synced successfully."
+          : "Google Tasks sync needs attention.",
+        lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
+        calendarEventId: metadata.calendarEventId,
+        googleTaskId: item.id ?? null
+      });
+    }
+
+    pageToken = response.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return collected.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function createGoogleBackedTask(
+  input: TaskInput,
+  session: GoogleTokens | null,
+  seed?: Partial<Pick<TaskRecord, "id" | "createdAt">> & { completed?: boolean }
+) {
+  if (!(await hasGoogleOAuthConfig())) {
+    throw new Error("Google settings are incomplete. Save the production settings first.");
+  }
+
+  if (!session?.access_token && !session?.refresh_token) {
+    throw new Error("Google connection is required for the current task storage mode.");
+  }
+
+  const auth = await buildAuthorizedClient(session);
+  const config = await getAppConfig();
+  const calendar = google.calendar({ version: "v3", auth });
+  const tasksApi = google.tasks({ version: "v1", auth });
+  const timestamp = new Date().toISOString();
+  const record: TaskRecord = {
+    id: seed?.id ?? randomUUID(),
+    title: input.title,
+    dueDate: input.dueDate || null,
+    notes: input.notes ?? "",
+    createdAt: seed?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    completed: seed?.completed ?? false,
+    calendarSync: "failed",
+    tasksSync: "failed",
+    calendarSyncMessage: "Calendar sync has not started yet.",
+    tasksSyncMessage: "Google Tasks sync has not started yet.",
+    lastSyncAttemptedAt: timestamp,
+    calendarEventId: null,
+    googleTaskId: null
+  };
+
+  const insertedTask = await tasksApi.tasks.insert({
+    tasklist: config.googleTasksListId || "@default",
+    requestBody: {
+      title: record.title,
+      notes: encodeManagedTaskNotes(record.notes, record),
+      due: record.dueDate ? new Date(record.dueDate).toISOString() : undefined,
+      status: record.completed ? "completed" : "needsAction"
+    }
+  });
+
+  record.googleTaskId = insertedTask.data.id ?? null;
+  record.tasksSync = record.googleTaskId ? "synced" : "failed";
+  record.tasksSyncMessage = record.googleTaskId
+    ? "Google Tasks synced successfully."
+    : "Google Tasks sync failed.";
+
+  try {
+    const startDate = record.dueDate ? new Date(record.dueDate) : new Date();
+    const endDate = record.dueDate
+      ? new Date(new Date(record.dueDate).getTime() + 60 * 60 * 1000)
+      : new Date(startDate.getTime() + 60 * 60 * 1000);
+
+    const calendarResponse = await calendar.events.insert({
+      calendarId: config.googleCalendarId || "primary",
+      requestBody: {
+        summary: record.title,
+        description: record.notes,
+        start: { dateTime: startDate.toISOString() },
+        end: { dateTime: endDate.toISOString() }
+      }
+    });
+
+    record.calendarEventId = calendarResponse.data.id ?? null;
+    record.calendarSync = "synced";
+    record.calendarSyncMessage = "Calendar synced successfully.";
+  } catch (error) {
+    record.calendarSync = "failed";
+    record.calendarSyncMessage =
+      error instanceof Error ? error.message : "Calendar sync failed.";
+  }
+
+  if (record.googleTaskId) {
+    const googleTaskId = record.googleTaskId;
+    await tasksApi.tasks.update({
+      tasklist: config.googleTasksListId || "@default",
+      task: googleTaskId,
+      requestBody: {
+        title: record.title,
+        notes: encodeManagedTaskNotes(record.notes, record),
+        due: record.dueDate ? new Date(record.dueDate).toISOString() : undefined,
+        status: record.completed ? "completed" : "needsAction"
+      }
+    });
+  }
+
+  return record;
+}
+
+export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleTokens | null) {
+  if (!(await hasGoogleOAuthConfig())) {
+    throw new Error("Google settings are incomplete. Save the production settings first.");
+  }
+
+  if (!session?.access_token && !session?.refresh_token) {
+    throw new Error("Google connection is required for the current task storage mode.");
+  }
+
+  if (!task.googleTaskId) {
+    throw new Error("The Google-backed task is missing its Google Tasks ID.");
+  }
+
+  const googleTaskId = task.googleTaskId;
+
+  const auth = await buildAuthorizedClient(session);
+  const config = await getAppConfig();
+  const calendar = google.calendar({ version: "v3", auth });
+  const tasksApi = google.tasks({ version: "v1", auth });
+  const nextTask: TaskRecord = {
+    ...task,
+    updatedAt: new Date().toISOString(),
+    lastSyncAttemptedAt: new Date().toISOString()
+  };
+
+  try {
+    const startDate = nextTask.dueDate ? new Date(nextTask.dueDate) : new Date();
+    const endDate = nextTask.dueDate
+      ? new Date(new Date(nextTask.dueDate).getTime() + 60 * 60 * 1000)
+      : new Date(startDate.getTime() + 60 * 60 * 1000);
+
+    const calendarResponse = nextTask.calendarEventId
+      ? await calendar.events.update({
+          calendarId: config.googleCalendarId || "primary",
+          eventId: nextTask.calendarEventId,
+          requestBody: {
+            summary: nextTask.title,
+            description: nextTask.notes,
+            start: { dateTime: startDate.toISOString() },
+            end: { dateTime: endDate.toISOString() }
+          }
+        })
+      : await calendar.events.insert({
+          calendarId: config.googleCalendarId || "primary",
+          requestBody: {
+            summary: nextTask.title,
+            description: nextTask.notes,
+            start: { dateTime: startDate.toISOString() },
+            end: { dateTime: endDate.toISOString() }
+          }
+        });
+
+    nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
+    nextTask.calendarSync = "synced";
+    nextTask.calendarSyncMessage = "Calendar synced successfully.";
+  } catch (error) {
+    nextTask.calendarSync = "failed";
+    nextTask.calendarSyncMessage =
+      error instanceof Error ? error.message : "Calendar sync failed.";
+  }
+
+  const tasksResponse = await tasksApi.tasks.update({
+    tasklist: config.googleTasksListId || "@default",
+    task: googleTaskId,
+    requestBody: {
+      title: nextTask.title,
+      notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
+      due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
+      status: nextTask.completed ? "completed" : "needsAction"
+    }
+  });
+
+  nextTask.googleTaskId = tasksResponse.data.id ?? nextTask.googleTaskId;
+  nextTask.tasksSync = "synced";
+  nextTask.tasksSyncMessage = "Google Tasks synced successfully.";
+
+  return nextTask;
 }
 
 export async function syncTaskToGoogle(

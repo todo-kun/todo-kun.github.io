@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { exportTasksBackup, importTasksBackup, listTasks, type TaskBackup } from "@/lib/tasks";
+import { getGoogleSession } from "@/lib/google";
+import { exportTasksBackup, importTasksBackup, type TaskBackup } from "@/lib/tasks";
 
 function isTaskBackup(value: unknown): value is TaskBackup {
   if (!value || typeof value !== "object") {
@@ -11,7 +12,8 @@ function isTaskBackup(value: unknown): value is TaskBackup {
 }
 
 export async function GET() {
-  const backup = await exportTasksBackup();
+  const session = await getGoogleSession();
+  const backup = await exportTasksBackup(session);
 
   return NextResponse.json({
     ok: true,
@@ -20,22 +22,33 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  try {
+    const body = await request.json();
 
-  if (!isTaskBackup(body)) {
+    if (!isTaskBackup(body)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Invalid backup file."
+        },
+        { status: 400 }
+      );
+    }
+
+    const session = await getGoogleSession();
+    const tasks = await importTasksBackup(body, session);
+
+    return NextResponse.json({
+      ok: true,
+      tasks
+    });
+  } catch (error) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Invalid backup file."
+        error: error instanceof Error ? error.message : "Backup import failed."
       },
-      { status: 400 }
+      { status: 409 }
     );
   }
-
-  const tasks = await importTasksBackup(body);
-
-  return NextResponse.json({
-    ok: true,
-    tasks
-  });
 }

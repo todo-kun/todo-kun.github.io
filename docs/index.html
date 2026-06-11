@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>トドくん | タスク管理アプリ</title>
+    <meta
+      name="description"
+      content="トドくんは、Google カレンダーと Google To Do に連携できるブラウザ完結のタスク管理アプリです。"
+    />
+    <style>
+      :root {
+        --bg: #f7efe0;
+        --panel: rgba(255, 251, 245, 0.92);
+        --panel-strong: #fffaf3;
+        --text: #30251c;
+        --muted: #6f5c49;
+        --line: rgba(85, 65, 40, 0.12);
+        --blue: #2f80d1;
+        --blue-dark: #175da2;
+        --blue-soft: #e4f1ff;
+        --yellow: #f3be5f;
+        --shadow: 0 30px 70px rgba(73, 50, 23, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(255, 210, 111, 0.78), transparent 28%),
+          radial-gradient(circle at 80% 16%, rgba(76, 171, 255, 0.22), transparent 18%),
+          linear-gradient(140deg, #f7efe0 0%, #f2e5d0 100%);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+
+      .hero,
+      .card,
+      .footer-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      .hero {
+        border-radius: 36px;
+        padding: 32px;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 28px;
+        align-items: center;
+      }
+
+      .brand-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(47, 128, 209, 0.14);
+        color: var(--blue-dark);
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 16px 0 0;
+        font-size: clamp(2.6rem, 6vw, 4.8rem);
+        line-height: 1.02;
+        letter-spacing: -0.04em;
+      }
+
+      .lead {
+        margin: 18px 0 0;
+        max-width: 610px;
+        font-size: 1.08rem;
+        line-height: 1.85;
+        color: var(--muted);
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .pill {
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--blue-soft);
+        border: 1px solid rgba(47, 128, 209, 0.14);
+        color: var(--blue-dark);
+        font-weight: 700;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .button,
+      .button-subtle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 999px;
+        font-weight: 700;
+      }
+
+      .button {
+        background: linear-gradient(135deg, var(--blue), #5ab1f4);
+        color: white;
+      }
+
+      .button-subtle {
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        color: var(--text);
+      }
+
+      .visual {
+        display: grid;
+        gap: 16px;
+      }
+
+      .mascot-wrap {
+        padding: 18px 18px 0;
+        border-radius: 30px;
+        background:
+          radial-gradient(circle at top, rgba(255, 236, 180, 0.84), transparent 32%),
+          linear-gradient(180deg, rgba(230, 245, 255, 0.96), rgba(255, 255, 255, 0.68));
+        border: 1px solid rgba(47, 128, 209, 0.14);
+        text-align: center;
+      }
+
+      .mascot-wrap img {
+        width: min(100%, 320px);
+        height: auto;
+        filter: drop-shadow(0 18px 32px rgba(25, 74, 118, 0.18));
+      }
+
+      .speech {
+        margin-top: -10px;
+        padding: 16px 18px;
+        border-radius: 22px 22px 28px 28px;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid rgba(47, 128, 209, 0.12);
+      }
+
+      .speech strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--blue-dark);
+      }
+
+      .speech p {
+        margin: 0;
+        line-height: 1.7;
+        color: var(--muted);
+      }
+
+      .status-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.76);
+        border: 1px solid var(--line);
+      }
+
+      .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: var(--yellow);
+        box-shadow: 0 0 0 6px rgba(243, 190, 95, 0.16);
+        flex: 0 0 auto;
+      }
+
+      .grid {
+        margin-top: 24px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .card,
+      .footer-card {
+        border-radius: 28px;
+        padding: 22px;
+      }
+
+      .card h2,
+      .footer-card h2 {
+        margin: 0 0 10px;
+        font-size: 1.35rem;
+      }
+
+      .card p,
+      .footer-card p,
+      .card li {
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .card ul {
+        margin: 0;
+        padding-left: 1.2rem;
+      }
+
+      .notice {
+        display: inline-flex;
+        width: fit-content;
+        margin-top: 12px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(243, 190, 95, 0.2);
+        color: #8b630e;
+        font-weight: 700;
+      }
+
+      .footer-card {
+        margin-top: 24px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .link-chip {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(47, 128, 209, 0.16);
+        background: rgba(255, 255, 255, 0.75);
+        color: var(--blue-dark);
+        font-weight: 700;
+      }
+
+      @media (max-width: 900px) {
+        .hero,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero,
+        .card,
+        .footer-card {
+          border-radius: 24px;
+        }
+
+        .page {
+          width: min(100% - 24px, 1120px);
+          padding-top: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <div class="brand-chip">タスク管理アプリ「トドくん」</div>
+          <h1>やることも予定も、まとめてトドく。</h1>
+          <p class="lead">
+            トドくんは、ブラウザだけで使えるタスク管理アプリです。登録したタスクを
+            Google カレンダーと Google To Do
+            に連携しながら、パソコンでもスマホでも同じ感覚で使えるように準備を進めています。
+          </p>
+          <div class="pill-row">
+            <span class="pill">ブラウザ完結</span>
+            <span class="pill">スマホ対応</span>
+            <span class="pill">Google 自動連携</span>
+          </div>
+          <div class="actions">
+            <a class="button" href="https://github.com/todo-kun/todo-kun.github.io">GitHub を見る</a>
+            <a class="button-subtle" href="./deployment.md">公開メモを見る</a>
+          </div>
+        </div>
+
+        <div class="visual">
+          <div class="mascot-wrap">
+            <img alt="トドくんのキャラクター" src="./assets/todokun.png" />
+            <div class="speech">
+              <strong>トドくんからのお知らせ</strong>
+              <p>
+                このページは GitHub Pages の公開ページです。本体アプリはサーバー機能が必要なため、
+                Vercel で使える形に整えています。
+              </p>
+            </div>
+          </div>
+          <div class="status-card">
+            <span class="status-dot"></span>
+            <div>
+              <strong>公開ページは準備できています</strong><br />
+              GitHub Pages で見られる案内ページとして利用できます。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>できること</h2>
+          <ul>
+            <li>タスク登録と一覧管理</li>
+            <li>Google カレンダー連携</li>
+            <li>Google To Do 連携</li>
+            <li>スマホでも使いやすい操作画面</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>公開方針</h2>
+          <p>
+            GitHub Pages は紹介ページと案内用に使い、本体アプリは Vercel へ公開する構成で進めます。
+          </p>
+          <div class="notice">本体アプリの公開先は別途追加予定</div>
+        </article>
+
+        <article class="card">
+          <h2>次の予定</h2>
+          <p>
+            本番運用に向けて、タスク保存先をデータベース化し、Vercel 上でそのまま使える形へ仕上げます。
+          </p>
+        </article>
+      </section>
+
+      <section class="footer-card">
+        <h2>関連リンク</h2>
+        <p>
+          ページ表示後は GitHub Pages 側の公開URLからこの案内ページを確認できます。アプリ本体のURLは
+          Vercel 側の公開後にここへ追加できます。
+        </p>
+        <div class="links">
+          <a class="link-chip" href="https://github.com/todo-kun/todo-kun.github.io">リポジトリ</a>
+          <a class="link-chip" href="https://github.com/todo-kun/todo-kun.github.io/settings/pages">Pages 設定</a>
+        </div>
+      </section>
+    </main>
+  </body>
+  </html>

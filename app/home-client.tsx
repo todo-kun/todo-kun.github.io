@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useState, useTransition } from "react";
 import type { TaskRecord } from "@/types/task";
 
@@ -62,10 +63,10 @@ type BackupResponse = {
 };
 
 const syncLabels = {
-  synced: "Synced",
-  not_connected: "Google not connected",
-  missing_config: "Google config missing",
-  failed: "Sync failed"
+  synced: "連携済み",
+  not_connected: "Google 未接続",
+  missing_config: "設定不足",
+  failed: "連携エラー"
 } as const;
 
 const emptyForm = {
@@ -207,16 +208,16 @@ export function HomeClient({
 
         if (editingTaskId) {
           setTasks((current) => current.map((task) => (task.id === savedTask.id ? savedTask : task)));
-          setMessage("Task updated successfully.");
+          setMessage("タスクを更新しました。");
         } else {
           setTasks((current) => [savedTask, ...current]);
-          setMessage("Task created successfully.");
+          setMessage("タスクを登録しました。");
         }
 
         setForm(emptyForm);
         setEditingTaskId(null);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
       }
     });
   }
@@ -225,7 +226,7 @@ export function HomeClient({
     startDisconnectTransition(async () => {
       await fetch("/api/google/disconnect", { method: "POST" });
       await refreshStatus();
-      setMessage("Google account disconnected.");
+      setMessage("Google 連携を解除しました。");
     });
   }
 
@@ -261,9 +262,9 @@ export function HomeClient({
         await refreshStatus();
         await refreshSettings();
         await refreshSettingsHealth();
-        setMessage("App settings saved.");
+        setMessage("設定を保存しました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
       }
     });
   }
@@ -275,13 +276,13 @@ export function HomeClient({
       dueDate: task.dueDate ?? "",
       notes: task.notes
     });
-    setMessage(`Editing "${task.title}"`);
+    setMessage(`「${task.title}」を編集中です。`);
   }
 
   function cancelEdit() {
     setEditingTaskId(null);
     setForm(emptyForm);
-    setMessage("Edit cancelled.");
+    setMessage("編集をキャンセルしました。");
   }
 
   async function mutateTask(taskId: string, action: "sync" | "toggle" | "delete") {
@@ -304,7 +305,7 @@ export function HomeClient({
           setForm(emptyForm);
         }
 
-        setMessage("Task deleted.");
+        setMessage("タスクを削除しました。");
         return;
       }
 
@@ -347,13 +348,13 @@ export function HomeClient({
       setTasks((current) => current.map((task) => (task.id === updatedTask.id ? updatedTask : task)));
       setMessage(
         action === "sync"
-          ? "Task sync retried."
+          ? "連携を再実行しました。"
           : updatedTask.completed
-            ? "Task marked complete."
-            : "Task marked active."
+            ? "タスクを完了にしました。"
+            : "タスクを進行中に戻しました。"
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+      setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
     } finally {
       setActiveTaskId(null);
     }
@@ -372,15 +373,15 @@ export function HomeClient({
         }
 
         if (result.tasks.length === 0) {
-          setMessage("All tasks are already synced.");
+          setMessage("未連携のタスクはありません。");
           return;
         }
 
         const nextTasks = new Map(result.tasks.map((task) => [task.id, task]));
         setTasks((current) => current.map((task) => nextTasks.get(task.id) ?? task));
-        setMessage(`${result.tasks.length} task(s) retried for sync.`);
+        setMessage(`${result.tasks.length}件のタスクで連携を再実行しました。`);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
       }
     });
   }
@@ -408,9 +409,9 @@ export function HomeClient({
         link.download = `task-sync-backup-${stamp}.json`;
         link.click();
         URL.revokeObjectURL(url);
-        setMessage("Backup exported.");
+        setMessage("バックアップを書き出しました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
       }
     });
   }
@@ -442,9 +443,9 @@ export function HomeClient({
         }
 
         setTasks(result.tasks);
-        setMessage("Backup imported.");
+        setMessage("バックアップを読み込みました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "An unexpected error occurred.");
+        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
       } finally {
         event.target.value = "";
       }
@@ -476,41 +477,62 @@ export function HomeClient({
     <main className="page-shell">
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Browser First Task Hub</p>
-          <h1>One task entry, synced across your calendar and to-do list.</h1>
+          <div className="brand-chip">タスク管理アプリ「トドくん」</div>
+          <h1>ひとつ登録するだけで、予定も To Do もまとめてトドく。</h1>
           <p className="lead">
-            Manage work from desktop or phone in the browser, then push each task to Google
-            Calendar and Google Tasks from one place.
+            トドくんは、ブラウザだけで使えるやさしいタスク管理アプリです。パソコンでもスマホでも、
+            登録したタスクを Google カレンダーと Google To Do に自動で反映できます。
           </p>
+          <div className="hero-points" aria-label="アプリの特徴">
+            <div className="hero-point">ブラウザ完結</div>
+            <div className="hero-point">スマホ対応</div>
+            <div className="hero-point">Google 自動連携</div>
+          </div>
         </div>
 
-        <div className="hero-status">
-          <div className="status-pill">
-            <span className="status-dot" data-active={googleStatus.connected} />
-            <span>
-              {googleStatus.connected
-                ? "Google connected"
-                : googleStatus.configured
-                  ? "Ready to connect Google"
-                  : "Google setup required"}
-            </span>
+        <div className="hero-visual">
+          <div className="mascot-card">
+            <Image
+              alt="トドくんのイメージキャラクター"
+              className="mascot-image"
+              height={360}
+              priority
+              src="/todokun.png"
+              width={360}
+            />
+            <div className="mascot-bubble">
+              <strong>今日のひとこと</strong>
+              <p>大事な予定も、やることも、トドくんが見落とさないように整えます。</p>
+            </div>
           </div>
+          <div className="hero-status">
+            <div className="status-pill">
+              <span className="status-dot" data-active={googleStatus.connected} />
+              <span>
+                {googleStatus.connected
+                  ? "Google 連携中"
+                  : googleStatus.configured
+                    ? "Google 連携の準備完了"
+                    : "Google 設定が必要です"}
+              </span>
+            </div>
 
-          <div className="action-row">
-            {googleStatus.connected ? (
-              <button
-                className="secondary-button"
-                onClick={handleDisconnect}
-                disabled={isDisconnecting}
-                type="button"
-              >
-                {isDisconnecting ? "Disconnecting..." : "Disconnect Google"}
-              </button>
-            ) : (
-              <a className="primary-link" href="/api/google/connect">
-                Connect Google
-              </a>
-            )}
+            <div className="action-row">
+              {googleStatus.connected ? (
+                <button
+                  className="secondary-button"
+                  onClick={handleDisconnect}
+                  disabled={isDisconnecting}
+                  type="button"
+                >
+                  {isDisconnecting ? "解除中..." : "Google 連携を解除"}
+                </button>
+              ) : (
+                <a className="primary-link" href="/api/google/connect">
+                  Google とつなぐ
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -518,25 +540,24 @@ export function HomeClient({
       <section className="content-grid">
         <form className="task-card" onSubmit={handleSubmit}>
           <div className="section-heading">
-            <h2>{editingTaskId ? "Edit task" : "Create task"}</h2>
+            <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
             <p>
-              Save the task in this app and, when Google is connected, sync it to Calendar and
-              Google Tasks automatically.
+              ここで登録した内容が、Google 連携済みならカレンダーと To Do に自動で反映されます。
             </p>
           </div>
 
           <label>
-            Title
+            タスク名
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Review estimate document"
+              placeholder="見積もり資料を確認する"
               required
             />
           </label>
 
           <label>
-            Due date
+            期限
             <input
               type="datetime-local"
               value={form.dueDate}
@@ -545,22 +566,22 @@ export function HomeClient({
           </label>
 
           <label>
-            Notes
+            メモ
             <textarea
               value={form.notes}
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="Add context, assignee, or meeting notes"
+              placeholder="補足、担当者、打ち合わせ内容など"
               rows={5}
             />
           </label>
 
           <div className="action-row">
             <button type="submit" disabled={isSaving}>
-              {isSaving ? "Saving..." : editingTaskId ? "Save changes" : "Create task"}
+              {isSaving ? "保存中..." : editingTaskId ? "変更を保存" : "タスクを登録"}
             </button>
             {editingTaskId ? (
               <button className="ghost-button" type="button" onClick={cancelEdit}>
-                Cancel
+                キャンセル
               </button>
             ) : null}
           </div>
@@ -570,7 +591,8 @@ export function HomeClient({
 
         <aside className="info-card">
           <div className="section-heading">
-            <h2>App settings</h2>
+            <h2>連携設定</h2>
+            <p>最初に一度だけ設定すれば、その後はブラウザからそのまま使えます。</p>
           </div>
           <form className="settings-form" onSubmit={handleSettingsSave}>
             <label>
@@ -580,7 +602,7 @@ export function HomeClient({
                 onChange={(event) =>
                   setSettingsForm((current) => ({ ...current, googleClientId: event.target.value }))
                 }
-                placeholder="Google OAuth client ID"
+                placeholder="Google OAuth の Client ID"
               />
             </label>
             <label>
@@ -593,8 +615,8 @@ export function HomeClient({
                 }
                 placeholder={
                   settingsConfigured.googleClientSecretConfigured
-                    ? "Already saved. Enter only to replace."
-                    : "Google OAuth client secret"
+                    ? "保存済みです。変更時のみ入力してください。"
+                    : "Google OAuth の Client Secret"
                 }
               />
             </label>
@@ -648,20 +670,20 @@ export function HomeClient({
                 }
                 placeholder={
                   settingsConfigured.appSecretConfigured
-                    ? "Already saved. Enter only to replace."
-                    : "Long random secret"
+                    ? "保存済みです。変更時のみ入力してください。"
+                    : "長めのランダム文字列"
                 }
               />
             </label>
             <div className="settings-hints">
               <p>
                 {settingsConfigured.appSecretConfigured
-                  ? "App Secret is already stored. Leave it empty to keep the current value."
-                  : "If App Secret is left empty, the app will generate one automatically."}
+                  ? "App Secret は保存済みです。空欄のままなら現在の値を使い続けます。"
+                  : "App Secret を空欄にした場合は、アプリ側で自動生成します。"}
               </p>
             </div>
             <button type="submit" disabled={isSavingSettings}>
-              {isSavingSettings ? "Saving settings..." : "Save settings"}
+              {isSavingSettings ? "設定を保存中..." : "設定を保存"}
             </button>
           </form>
         </aside>
@@ -669,8 +691,8 @@ export function HomeClient({
 
       <section className="setup-card">
         <div className="section-heading">
-          <h2>Setup checklist</h2>
-          <p>Fill these items to make Google connection available in the browser.</p>
+          <h2>はじめの準備チェック</h2>
+          <p>以下を埋めると、ブラウザ上から Google 連携を開始できます。</p>
         </div>
         <div className="checklist-grid">
           <SetupItem label="Google Client ID" ready={settingsHealth.googleClientId} />
@@ -683,26 +705,26 @@ export function HomeClient({
         </div>
         <p className="setup-summary">
           {settingsHealth.readyForGoogleConnect
-            ? "Google connection is ready to start from this browser."
-            : "Save the missing items above, then connect Google."}
+            ? "このブラウザから Google 連携を始められます。"
+            : "不足している項目を保存してから Google 連携を進めてください。"}
         </p>
       </section>
 
       <section className="stats-grid" aria-label="Task summary">
         <article className="stat-card">
-          <span className="stat-label">Total tasks</span>
+          <span className="stat-label">登録タスク</span>
           <strong>{taskSummary.total}</strong>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Open</span>
+          <span className="stat-label">進行中</span>
           <strong>{taskSummary.open}</strong>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Done</span>
+          <span className="stat-label">完了</span>
           <strong>{taskSummary.done}</strong>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Sync pending</span>
+          <span className="stat-label">未連携</span>
           <strong>{taskSummary.syncPending}</strong>
         </article>
       </section>
@@ -710,18 +732,18 @@ export function HomeClient({
       <section className="list-card">
         <div className="section-heading section-heading-row">
           <div>
-            <h2>Task list</h2>
-            <p>Your recent tasks are stored here and keep their sync status.</p>
+            <h2>タスク一覧</h2>
+            <p>最近のタスクと、Google への反映状況をここでまとめて確認できます。</p>
           </div>
           <div className="toolbar-row">
-            <div className="filter-row" role="tablist" aria-label="Task filters">
+            <div className="filter-row" role="tablist" aria-label="タスクの絞り込み">
               <button
                 className="ghost-button"
                 data-selected={filter === "all"}
                 onClick={() => setFilter("all")}
                 type="button"
               >
-                All
+                すべて
               </button>
               <button
                 className="ghost-button"
@@ -729,7 +751,7 @@ export function HomeClient({
                 onClick={() => setFilter("open")}
                 type="button"
               >
-                Open
+                進行中
               </button>
               <button
                 className="ghost-button"
@@ -737,7 +759,7 @@ export function HomeClient({
                 onClick={() => setFilter("done")}
                 type="button"
               >
-                Done
+                完了
               </button>
             </div>
             <button
@@ -746,7 +768,7 @@ export function HomeClient({
               onClick={() => void handleBulkSync()}
               type="button"
             >
-              {isBulkSyncing ? "Syncing..." : "Retry all pending syncs"}
+              {isBulkSyncing ? "再連携中..." : "未連携をまとめて再実行"}
             </button>
             <button
               className="ghost-button"
@@ -754,10 +776,10 @@ export function HomeClient({
               onClick={() => void handleExportBackup()}
               type="button"
             >
-              {isExporting ? "Exporting..." : "Export backup"}
+              {isExporting ? "書き出し中..." : "バックアップを書き出す"}
             </button>
             <label className="ghost-button file-button">
-              {isImporting ? "Importing..." : "Import backup"}
+              {isImporting ? "読み込み中..." : "バックアップを読み込む"}
               <input
                 accept="application/json"
                 className="file-input"
@@ -772,7 +794,7 @@ export function HomeClient({
               disabled={isLoading}
               type="button"
             >
-              {isLoading ? "Refreshing..." : "Refresh"}
+              {isLoading ? "更新中..." : "最新に更新"}
             </button>
           </div>
         </div>
@@ -781,7 +803,9 @@ export function HomeClient({
           {visibleTasks.length === 0 ? (
             <div className="empty-state">
               <p>
-                {tasks.length === 0 ? "No tasks yet. Create your first task above." : "No tasks in this filter."}
+                {tasks.length === 0
+                  ? "まだタスクがありません。上のフォームから最初の1件を登録しましょう。"
+                  : "この条件に当てはまるタスクはありません。"}
               </p>
             </div>
           ) : (
@@ -790,42 +814,42 @@ export function HomeClient({
                 <div className="task-main">
                   <div className="task-title-row">
                     <h3>{task.title}</h3>
-                    <span className="task-badge">{task.completed ? "Done" : "Open"}</span>
+                    <span className="task-badge">{task.completed ? "完了" : "進行中"}</span>
                   </div>
-                  <p>{task.notes || "No notes added."}</p>
+                  <p>{task.notes || "メモはまだありません。"}</p>
                 </div>
 
                 <dl className="task-meta">
                   <div>
-                    <dt>Due</dt>
-                    <dd>{task.dueDate ? formatDate(task.dueDate) : "Not set"}</dd>
+                    <dt>期限</dt>
+                    <dd>{task.dueDate ? formatDate(task.dueDate) : "未設定"}</dd>
                   </div>
                   <div>
-                    <dt>Calendar</dt>
+                    <dt>カレンダー</dt>
                     <dd>{syncLabels[task.calendarSync]}</dd>
                   </div>
                   <div>
-                    <dt>Tasks</dt>
+                    <dt>To Do</dt>
                     <dd>{syncLabels[task.tasksSync]}</dd>
                   </div>
                 </dl>
 
                 <div className="sync-details">
                   <p>
-                    <strong>Calendar:</strong> {task.calendarSyncMessage}
+                    <strong>カレンダー:</strong> {task.calendarSyncMessage}
                   </p>
                   <p>
-                    <strong>Tasks:</strong> {task.tasksSyncMessage}
+                    <strong>To Do:</strong> {task.tasksSyncMessage}
                   </p>
                   <p>
-                    <strong>Last sync:</strong>{" "}
-                    {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "Not attempted yet"}
+                    <strong>最終連携:</strong>{" "}
+                    {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行していません"}
                   </p>
                 </div>
 
                 <div className="task-actions">
                   <button className="ghost-button" onClick={() => startEdit(task)} type="button">
-                    Edit
+                    編集
                   </button>
                   <button
                     className="ghost-button"
@@ -833,7 +857,7 @@ export function HomeClient({
                     onClick={() => void mutateTask(task.id, "toggle")}
                     type="button"
                   >
-                    {task.completed ? "Mark active" : "Mark done"}
+                    {task.completed ? "進行中に戻す" : "完了にする"}
                   </button>
                   <button
                     className="ghost-button"
@@ -841,7 +865,7 @@ export function HomeClient({
                     onClick={() => void mutateTask(task.id, "sync")}
                     type="button"
                   >
-                    Retry sync
+                    再連携
                   </button>
                   <button
                     className="secondary-button"
@@ -849,7 +873,7 @@ export function HomeClient({
                     onClick={() => void mutateTask(task.id, "delete")}
                     type="button"
                   >
-                    Delete
+                    削除
                   </button>
                 </div>
               </article>

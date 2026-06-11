@@ -4,16 +4,15 @@
 
 - The local branch is `main`
 - Git user name and email are already configured
-- No remote is connected yet
+- Target repository: `https://github.com/todo-kun/todo-kun.github.io.git`
 
 ## Simplest publish flow
 
-1. Create an empty GitHub repository in the browser
-2. Copy the repository URL
-3. Run the local publish helper:
+1. Use the GitHub repository `todo-kun/todo-kun.github.io`
+2. Run the local publish helper:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\publish-to-github.ps1 -RepositoryUrl "https://github.com/<owner>/<repo>.git"
+powershell -ExecutionPolicy Bypass -File .\scripts\publish-to-github.ps1 -RepositoryUrl "https://github.com/todo-kun/todo-kun.github.io.git"
 ```
 
 ## What the script does

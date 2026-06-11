@@ -2,18 +2,18 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Task Sync Hub",
-  description: "Browser-based task management app with Google Calendar and Google Tasks sync.",
+  title: "トドくん",
+  description: "Google カレンダーと Google To Do に連携できる、ブラウザ完結のタスク管理アプリ。",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Task Sync Hub"
+    title: "トドくん"
   }
 };
 
 export const viewport: Viewport = {
-  themeColor: "#b85c38",
+  themeColor: "#2f80d1",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover"

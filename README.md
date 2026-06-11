@@ -1,24 +1,24 @@
-# Task Sync Hub
+# トドくん
 
-Browser-based task management app that can be used from desktop and mobile.
-When a task is created in the app, it can also be synced to Google Calendar and Google Tasks.
+ブラウザ完結で使える、Google カレンダーと Google To Do 連携つきのタスク管理アプリです。
 
-## Current capabilities
+パソコンでもスマホでも使え、登録したタスクを Google カレンダーと Google Tasks に連携できます。
 
-- Browser-only workflow for desktop and phone
-- Responsive task creation screen
-- Local task storage in `data/tasks.json`
-- Google OAuth connect and disconnect flow
-- Browser-based settings form for Google and app configuration
-- Setup checklist that shows what is still missing before Google connect
-- Automatic Google Calendar and Google Tasks sync on task creation
-- Task edit, completion toggle, delete, and manual sync retry
-- Summary cards and bulk retry for tasks that still need sync
-- Backup export and import for moving tasks between browsers
-- GitHub Actions CI for lint and build
-- PWA manifest so the app can be added to a mobile home screen
+## 現在できること
 
-## Stack
+- ブラウザだけで使える操作画面
+- スマホでも扱いやすいレスポンシブ画面
+- Google OAuth の接続と解除
+- ブラウザ上での連携設定入力
+- Google 接続前の不足項目チェック
+- タスク登録時の Google カレンダー / Google To Do 自動連携
+- タスク編集、完了切替、削除、手動再連携
+- 状態サマリーと未連携タスクの一括再実行
+- バックアップの書き出し / 読み込み
+- GitHub Actions による lint / build 確認
+- ホーム画面追加しやすい PWA マニフェスト
+
+## 技術構成
 
 - Next.js 16
 - TypeScript
@@ -26,7 +26,7 @@ When a task is created in the app, it can also be synced to Google Calendar and 
 - Google APIs via `googleapis`
 - File-based storage for the current MVP
 
-## Setup
+## セットアップ
 
 1. Install dependencies with `npm install`
 2. Copy `.env.example` to `.env.local`
@@ -42,28 +42,28 @@ When a task is created in the app, it can also be synced to Google Calendar and 
    - `APP_SECRET`
 6. Start the app with `npm run dev`
 
-## Notes about storage
+## 保存方式について
 
-- Tasks are currently stored in `data/tasks.json`
-- Google OAuth tokens are stored in an encrypted HTTP-only cookie
-- For production, moving tasks to a database is recommended
+- 現在のタスク保存先は `data/tasks.json` です
+- Google OAuth トークンは暗号化した HTTP-only Cookie に保存しています
+- 本番公開では、タスク保存先をデータベースへ移すことを強くおすすめします
+- 特に Vercel 本番運用では、ローカルファイル保存のまま長期利用しない前提で考えるのが安全です
 
-## Recommended next improvements
+## 本番公開のおすすめ
 
-- Replace file storage with Postgres or Supabase
-- Add task edit and delete flows
-- Add background retry for failed syncs
-- Add multi-user account support
-- Deploy to Vercel and connect a production Google OAuth redirect URL
+- GitHub はコード管理に使う
+- 本番公開先は Vercel を使う
+- タスク保存先は Postgres や Supabase などへ移す
+- Google OAuth の本番用 Redirect URI を公開URLに合わせる
 
-## GitHub workflow
+## GitHub 運用
 
 - Keep `main` deployable
 - Create a branch per feature
 - Review with pull requests
 - Let CI verify lint and build before merge
 
-## Deployment
+## デプロイ
 
 - Recommended target: Vercel
 - Deployment checklist: [docs/deployment.md](docs/deployment.md)

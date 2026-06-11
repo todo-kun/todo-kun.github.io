@@ -18,7 +18,7 @@
     "zod": "3.24.1"
   },
   "devDependencies": {
-    "@types/node": "22.15.30",
+    "@types/node": "25.9.3",
     "@types/react": "19.1.6",
     "@types/react-dom": "19.1.5",
     "eslint": "9.25.0",

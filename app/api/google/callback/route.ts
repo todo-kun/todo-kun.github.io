@@ -12,6 +12,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/?google=missing-config", await getBaseUrl()));
   }
 
+  const oauthError = request.nextUrl.searchParams.get("error");
+
+  if (oauthError) {
+    return NextResponse.redirect(
+      new URL(`/?google=oauth-error&reason=${encodeURIComponent(oauthError)}`, await getBaseUrl())
+    );
+  }
+
   const cookieStore = await cookies();
   const stateFromCookie = cookieStore.get("google_oauth_state")?.value;
   const stateFromQuery = request.nextUrl.searchParams.get("state");
@@ -21,18 +29,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/?google=invalid-state", await getBaseUrl()));
   }
 
-  const tokens = await exchangeGoogleCode(code);
-  const response = NextResponse.redirect(new URL("/?google=connected", await getBaseUrl()));
+  try {
+    const tokens = await exchangeGoogleCode(code);
+    const response = NextResponse.redirect(new URL("/?google=connected", await getBaseUrl()));
 
-  response.cookies.set("google_oauth_state", "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0
-  });
+    response.cookies.set("google_oauth_state", "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 0
+    });
 
-  await storeGoogleSession(response, tokens);
+    await storeGoogleSession(response, tokens);
 
-  return response;
+    return response;
+  } catch {
+    return NextResponse.redirect(new URL("/?google=token-error", await getBaseUrl()));
+  }
 }

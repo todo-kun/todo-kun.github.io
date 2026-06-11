@@ -67,4 +67,5 @@
 
 - Recommended target: Vercel
 - Deployment checklist: [docs/deployment.md](docs/deployment.md)
+- Production launch guide: [docs/vercel-production.md](docs/vercel-production.md)
 - GitHub publish helper: [docs/github-publish.md](docs/github-publish.md)

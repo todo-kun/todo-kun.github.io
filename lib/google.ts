@@ -24,6 +24,22 @@ export type GoogleTokens = {
   token_type?: string | null;
 };
 
+function compactGoogleTokens(tokens: GoogleTokens): GoogleTokens {
+  if (tokens.refresh_token) {
+    return {
+      refresh_token: tokens.refresh_token,
+      access_token: tokens.access_token ?? null,
+      expiry_date: tokens.expiry_date ?? null
+    };
+  }
+
+  return {
+    access_token: tokens.access_token ?? null,
+    refresh_token: null,
+    expiry_date: tokens.expiry_date ?? null
+  };
+}
+
 type SyncResult = {
   status: SyncState;
   externalId: string | null;
@@ -95,8 +111,9 @@ export async function exchangeGoogleCode(code: string) {
 
 export async function storeGoogleSession(response: NextResponse, tokens: GoogleTokens) {
   const config = await getAppConfig();
+  const compactTokens = compactGoogleTokens(tokens);
 
-  response.cookies.set(sessionCookieName, encryptJson(tokens, config.appSecret), {
+  response.cookies.set(sessionCookieName, encryptJson(compactTokens, config.appSecret), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

@@ -14,7 +14,7 @@ const googleScopes = [
   "profile"
 ];
 
-const sessionCookieName = "google_session";
+const sessionCookieName = "google_session_v2";
 
 export type GoogleTokens = {
   access_token?: string | null;
@@ -27,16 +27,12 @@ export type GoogleTokens = {
 function compactGoogleTokens(tokens: GoogleTokens): GoogleTokens {
   if (tokens.refresh_token) {
     return {
-      refresh_token: tokens.refresh_token,
-      access_token: tokens.access_token ?? null,
-      expiry_date: tokens.expiry_date ?? null
+      refresh_token: tokens.refresh_token
     };
   }
 
   return {
-    access_token: tokens.access_token ?? null,
-    refresh_token: null,
-    expiry_date: tokens.expiry_date ?? null
+    access_token: tokens.access_token ?? null
   };
 }
 

@@ -5,7 +5,7 @@ import { readJsonFile, writeJsonFile } from "@/lib/file-store";
 import { decryptJson, encryptJson } from "@/lib/crypto";
 
 const appConfigFileName = "app-config.json";
-const appConfigCookieName = "todokun_app_config_v2";
+export const appConfigCookieName = "ac3";
 
 export type AppConfig = {
   googleClientId: string;

@@ -6,7 +6,7 @@ import { getAppConfig } from "@/lib/app-config";
 import { decryptJson, encryptJson } from "@/lib/crypto";
 import type { SyncState, TaskInput, TaskRecord } from "@/types/task";
 
-const googleScopes = [
+export const googleScopes = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks",
   "openid",
@@ -14,7 +14,8 @@ const googleScopes = [
   "profile"
 ];
 
-const sessionCookieName = "google_session_v2";
+export const sessionCookieName = "gs3";
+export const oauthStateCookieName = "gos";
 
 export type GoogleTokens = {
   access_token?: string | null;

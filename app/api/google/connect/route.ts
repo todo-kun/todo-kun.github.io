@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { createGoogleAuthState, getGoogleAuthUrl, hasGoogleOAuthConfig } from "@/lib/google";
+import {
+  createGoogleAuthState,
+  getGoogleAuthUrl,
+  hasGoogleOAuthConfig,
+  oauthStateCookieName
+} from "@/lib/google";
 
 export async function GET() {
   if (!(await hasGoogleOAuthConfig())) {
@@ -15,7 +20,7 @@ export async function GET() {
   const state = createGoogleAuthState();
   const response = NextResponse.redirect(await getGoogleAuthUrl(state));
 
-  response.cookies.set("google_oauth_state", state, {
+  response.cookies.set(oauthStateCookieName, state, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

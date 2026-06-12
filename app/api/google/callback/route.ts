@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   const cookieStore = await cookies();
-  const stateFromCookie = cookieStore.get("google_oauth_state")?.value;
+  const stateFromCookie = cookieStore.get("gos")?.value;
   const stateFromQuery = request.nextUrl.searchParams.get("state");
   const code = request.nextUrl.searchParams.get("code");
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     const tokens = await exchangeGoogleCode(code);
     const response = NextResponse.redirect(new URL("/?google=connected", await getBaseUrl()));
 
-    response.cookies.set("google_oauth_state", "", {
+    response.cookies.set("gos", "", {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",

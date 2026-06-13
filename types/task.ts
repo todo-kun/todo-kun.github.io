@@ -1,11 +1,14 @@
 import { z } from "zod";
 
+const memberEmailSchema = z.string().trim().email("Enter a valid Google account email.");
+
 export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Task title is required.").max(120),
   dueDate: z.string().optional(),
   notes: z.string().max(1000).optional(),
   projectName: z.string().trim().max(80).optional(),
-  categoryName: z.string().trim().max(80).optional()
+  categoryName: z.string().trim().max(80).optional(),
+  memberEmails: z.array(memberEmailSchema).max(20).optional()
 });
 
 export const taskUpdateSchema = taskInputSchema.extend({
@@ -36,6 +39,7 @@ export type TaskRecord = {
   notes: string;
   projectName: string;
   categoryName: string;
+  memberEmails: string[];
   createdAt: string;
   updatedAt: string;
   completed: boolean;

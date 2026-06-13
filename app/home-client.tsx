@@ -83,7 +83,8 @@ const emptyForm = {
   dueDate: "",
   notes: "",
   projectName: "",
-  categoryName: ""
+  categoryName: "",
+  memberEmailsText: ""
 };
 
 const emptyTaxonomy: TaskTaxonomy = {
@@ -155,6 +156,17 @@ function toDateTimeLocalValue(value: string | null) {
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60 * 1000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function parseMemberEmails(value: string) {
+  return [...new Set(value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean))];
+}
+
+function toMemberEmailsText(memberEmails: string[]) {
+  return memberEmails.join(", ");
 }
 
 export function HomeClient({
@@ -268,6 +280,7 @@ export function HomeClient({
             ...form,
             projectName: form.projectName.trim(),
             categoryName: form.categoryName.trim(),
+            memberEmails: parseMemberEmails(form.memberEmailsText),
             dueDate: toApiDateTime(form.dueDate),
             completed: editingTaskId
               ? tasks.find((task) => task.id === editingTaskId)?.completed ?? false
@@ -395,7 +408,8 @@ export function HomeClient({
       dueDate: toDateTimeLocalValue(task.dueDate),
       notes: task.notes,
       projectName: task.projectName ?? "",
-      categoryName: task.categoryName ?? ""
+      categoryName: task.categoryName ?? "",
+      memberEmailsText: toMemberEmailsText(task.memberEmails ?? [])
     });
     setMessage(`「${task.title}」を編集中です。`);
   }
@@ -454,6 +468,7 @@ export function HomeClient({
                   notes: targetTask.notes,
                   projectName: targetTask.projectName ?? "",
                   categoryName: targetTask.categoryName ?? "",
+                  memberEmails: targetTask.memberEmails ?? [],
                   completed: !targetTask.completed
                 })
               : undefined
@@ -735,6 +750,18 @@ export function HomeClient({
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
               placeholder="補足や次のアクションを書けます"
               rows={5}
+            />
+          </label>
+
+          <label>
+            参加メンバー
+            <textarea
+              value={form.memberEmailsText}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, memberEmailsText: event.target.value }))
+              }
+              placeholder="Googleアカウントのメールアドレスをカンマ区切りか改行で追加"
+              rows={3}
             />
           </label>
 
@@ -1072,6 +1099,11 @@ export function HomeClient({
                     {task.categoryName ? (
                       <span className="task-chip">種類: {task.categoryName}</span>
                     ) : null}
+                    {task.memberEmails.map((email) => (
+                      <span className="task-chip" key={email}>
+                        参加: {email}
+                      </span>
+                    ))}
                   </div>
                   <p>{task.notes || "メモはまだありません。"}</p>
                 </div>
@@ -1088,6 +1120,10 @@ export function HomeClient({
                   <div>
                     <dt>To Do</dt>
                     <dd>{syncLabels[task.tasksSync]}</dd>
+                  </div>
+                  <div>
+                    <dt>参加人数</dt>
+                    <dd>{task.memberEmails.length}人</dd>
                   </div>
                 </dl>
 

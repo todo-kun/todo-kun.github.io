@@ -32,7 +32,8 @@ test("task lifecycle works end to end without Google config", async () => {
       dueDate: "2026-06-15T10:00",
       notes: "Include pricing details",
       projectName: "補助金案件",
-      categoryName: "資料作成"
+      categoryName: "資料作成",
+      memberEmails: ["member1@example.com", "member2@example.com"]
     },
     null
   );
@@ -40,6 +41,7 @@ test("task lifecycle works end to end without Google config", async () => {
   assert.equal(created.title, "Prepare proposal");
   assert.equal(created.projectName, "補助金案件");
   assert.equal(created.categoryName, "資料作成");
+  assert.deepEqual(created.memberEmails, ["member1@example.com", "member2@example.com"]);
   assert.equal(created.completed, false);
   assert.equal(created.calendarSync, "missing_config");
   assert.equal(created.tasksSync, "missing_config");
@@ -58,6 +60,7 @@ test("task lifecycle works end to end without Google config", async () => {
       notes: "Include pricing and delivery details",
       projectName: "補助金案件",
       categoryName: "資料作成",
+      memberEmails: ["member2@example.com"],
       completed: true
     },
     null
@@ -89,7 +92,8 @@ test("tasks are persisted to the local data file", async () => {
       dueDate: "",
       notes: "Ask about lead time",
       projectName: "仕入れ管理",
-      categoryName: "メール送信"
+      categoryName: "メール送信",
+      memberEmails: ["buyer@example.com"]
     },
     null
   );
@@ -99,12 +103,14 @@ test("tasks are persisted to the local data file", async () => {
     title: string;
     projectName: string;
     categoryName: string;
+    memberEmails: string[];
     calendarSyncMessage: string;
   }>;
 
   assert.equal(parsed[0]?.title, "Call supplier");
   assert.equal(parsed[0]?.projectName, "仕入れ管理");
   assert.equal(parsed[0]?.categoryName, "メール送信");
+  assert.deepEqual(parsed[0]?.memberEmails, ["buyer@example.com"]);
   assert.equal(parsed[0]?.calendarSyncMessage, "Google settings are incomplete.");
 });
 
@@ -117,7 +123,8 @@ test("tasks can be exported and imported as a backup", async () => {
       dueDate: "2026-06-20T09:00",
       notes: "Keep this safe",
       projectName: "顧客対応",
-      categoryName: "アポ調整"
+      categoryName: "アポ調整",
+      memberEmails: ["owner@example.com", "partner@example.com"]
     },
     null
   );
@@ -138,7 +145,8 @@ test("tasks can be exported and imported as a backup", async () => {
         id: "restored-task",
         title: "Restored task",
         projectName: "再登録案件",
-        categoryName: "資料作成"
+        categoryName: "資料作成",
+        memberEmails: ["restored@example.com"]
       }
     ]
   });
@@ -147,4 +155,5 @@ test("tasks can be exported and imported as a backup", async () => {
   assert.equal(restored[0]?.title, "Restored task");
   assert.equal(restored[0]?.projectName, "再登録案件");
   assert.equal(restored[0]?.categoryName, "資料作成");
+  assert.deepEqual(restored[0]?.memberEmails, ["restored@example.com"]);
 });

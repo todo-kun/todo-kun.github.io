@@ -405,6 +405,7 @@ button {
   background: rgba(255, 255, 255, 0.78);
   color: var(--accent-strong);
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .chip-button {
@@ -504,7 +505,7 @@ button {
 .task-meta {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 

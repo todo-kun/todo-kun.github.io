@@ -50,6 +50,7 @@ type ManagedTaskMetadata = {
   dueDate: string | null;
   projectName: string;
   categoryName: string;
+  memberEmails: string[];
   createdAt: string;
   updatedAt: string;
   calendarEventId: string | null;
@@ -172,6 +173,7 @@ function buildManagedTaskMetadata(task: Pick<
   | "dueDate"
   | "projectName"
   | "categoryName"
+  | "memberEmails"
   | "createdAt"
   | "updatedAt"
   | "calendarEventId"
@@ -187,6 +189,7 @@ function buildManagedTaskMetadata(task: Pick<
     dueDate: task.dueDate,
     projectName: task.projectName,
     categoryName: task.categoryName,
+    memberEmails: task.memberEmails,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     calendarEventId: task.calendarEventId,
@@ -206,6 +209,7 @@ export function encodeManagedTaskNotes(
     | "dueDate"
     | "projectName"
     | "categoryName"
+    | "memberEmails"
     | "createdAt"
     | "updatedAt"
     | "calendarEventId"
@@ -290,7 +294,9 @@ async function persistManagedTaskMetadataSafely(
   }
 }
 
-function buildCalendarEventRequestBody(task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate">) {
+function buildCalendarEventRequestBody(
+  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate" | "memberEmails">
+) {
   const startDate = task.dueDate ? new Date(task.dueDate) : new Date();
   const endDate = task.dueDate
     ? new Date(new Date(task.dueDate).getTime() + 60 * 60 * 1000)
@@ -299,6 +305,7 @@ function buildCalendarEventRequestBody(task: Pick<TaskRecord, "id" | "title" | "
   return {
     summary: task.title,
     description: task.notes,
+    attendees: task.memberEmails.map((email) => ({ email })),
     start: { dateTime: startDate.toISOString() },
     end: { dateTime: endDate.toISOString() },
     extendedProperties: {
@@ -478,6 +485,7 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           notes,
           projectName: metadata.projectName ?? "",
           categoryName: metadata.categoryName ?? "",
+          memberEmails: metadata.memberEmails ?? [],
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
@@ -536,6 +544,7 @@ export async function createGoogleBackedTask(
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
+    memberEmails: input.memberEmails ?? [],
     createdAt: seed?.createdAt ?? timestamp,
     updatedAt: timestamp,
     completed: seed?.completed ?? false,
@@ -567,7 +576,8 @@ export async function createGoogleBackedTask(
   try {
     const calendarResponse = await calendar.events.insert({
       calendarId: config.googleCalendarId || "primary",
-      requestBody: buildCalendarEventRequestBody(record)
+      requestBody: buildCalendarEventRequestBody(record),
+      sendUpdates: "all"
     });
 
     record.calendarEventId = calendarResponse.data.id ?? null;
@@ -611,11 +621,13 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
       ? await calendar.events.update({
           calendarId: config.googleCalendarId || "primary",
           eventId: nextTask.calendarEventId,
-          requestBody: buildCalendarEventRequestBody(nextTask)
+          requestBody: buildCalendarEventRequestBody(nextTask),
+          sendUpdates: "all"
         })
       : await calendar.events.insert({
           calendarId: config.googleCalendarId || "primary",
-          requestBody: buildCalendarEventRequestBody(nextTask)
+          requestBody: buildCalendarEventRequestBody(nextTask),
+          sendUpdates: "all"
         });
 
     nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
@@ -727,13 +739,15 @@ export async function syncTaskToGoogle(
         requestBody: {
           summary: input.title,
           description: input.notes,
+          attendees: (input.memberEmails ?? []).map((email) => ({ email })),
           start: {
             dateTime: startDate.toISOString()
           },
           end: {
             dateTime: endDate.toISOString()
           }
-        }
+        },
+        sendUpdates: "all"
       }),
       tasks.tasks.insert({
         tasklist: config.googleTasksListId || "@default",
@@ -818,18 +832,22 @@ export async function syncStoredTaskToGoogle(
           requestBody: {
             summary: task.title,
             description: task.notes,
+            attendees: task.memberEmails.map((email) => ({ email })),
             start: { dateTime: startDate.toISOString() },
             end: { dateTime: endDate.toISOString() }
-          }
+          },
+          sendUpdates: "all"
         })
       : await calendar.events.insert({
           calendarId: config.googleCalendarId || "primary",
           requestBody: {
             summary: task.title,
             description: task.notes,
+            attendees: task.memberEmails.map((email) => ({ email })),
             start: { dateTime: startDate.toISOString() },
             end: { dateTime: endDate.toISOString() }
-          }
+          },
+          sendUpdates: "all"
         });
 
     const tasksResponse = task.googleTaskId

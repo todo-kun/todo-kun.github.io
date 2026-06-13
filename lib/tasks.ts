@@ -37,7 +37,8 @@ export async function listTasks(session: GoogleTokens | null = null) {
   const normalized = tasks.map((task) => ({
     ...task,
     projectName: task.projectName ?? "",
-    categoryName: task.categoryName ?? ""
+    categoryName: task.categoryName ?? "",
+    memberEmails: task.memberEmails ?? []
   }));
   return normalized.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
@@ -60,6 +61,7 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
+    memberEmails: input.memberEmails ?? [],
     createdAt: timestamp,
     updatedAt: timestamp,
     completed: false,
@@ -105,6 +107,7 @@ export async function updateTaskAndSync(
         notes: input.notes ?? "",
         projectName: input.projectName?.trim() ?? "",
         categoryName: input.categoryName?.trim() ?? "",
+        memberEmails: input.memberEmails ?? [],
         completed: input.completed ?? current.completed
       },
       session
@@ -125,6 +128,7 @@ export async function updateTaskAndSync(
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
+    memberEmails: input.memberEmails ?? [],
     completed: input.completed ?? tasks[index].completed,
     updatedAt: new Date().toISOString()
   };
@@ -284,7 +288,8 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
           dueDate: task.dueDate ?? "",
           notes: task.notes,
           projectName: task.projectName ?? "",
-          categoryName: task.categoryName ?? ""
+          categoryName: task.categoryName ?? "",
+          memberEmails: task.memberEmails ?? []
         },
         session,
         {

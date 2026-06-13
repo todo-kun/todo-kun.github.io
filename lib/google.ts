@@ -259,6 +259,40 @@ async function persistManagedTaskMetadata(
   });
 }
 
+async function findMatchingCalendarEventId(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  task: Pick<TaskRecord, "title" | "notes" | "dueDate">
+) {
+  const anchorDate = task.dueDate ? new Date(task.dueDate) : new Date();
+  const timeMin = new Date(anchorDate.getTime() - 12 * 60 * 60 * 1000).toISOString();
+  const timeMax = new Date(anchorDate.getTime() + 36 * 60 * 60 * 1000).toISOString();
+
+  const response = await calendar.events.list({
+    calendarId,
+    q: task.title,
+    singleEvents: true,
+    timeMin,
+    timeMax,
+    maxResults: 20
+  });
+
+  const normalizedNotes = task.notes.trim();
+  const matchingEvent = (response.data.items ?? []).find((item) => {
+    if ((item.summary ?? "").trim() !== task.title.trim()) {
+      return false;
+    }
+
+    if (normalizedNotes && (item.description ?? "").trim() !== normalizedNotes) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return matchingEvent?.id ?? null;
+}
+
 export async function listGoogleBackedTasks(session: GoogleTokens | null): Promise<TaskRecord[]> {
   if (!(await hasGoogleOAuthConfig())) {
     return [];
@@ -270,14 +304,17 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
 
   const auth = await buildAuthorizedClient(session);
   const config = await getAppConfig();
+  const calendar = google.calendar({ version: "v3", auth });
   const tasksApi = google.tasks({ version: "v1", auth });
+  const calendarId = config.googleCalendarId || "primary";
+  const tasklistId = config.googleTasksListId || "@default";
   const collected: TaskRecord[] = [];
   let pageToken: string | undefined;
 
   try {
     do {
       const response = await tasksApi.tasks.list({
-        tasklist: config.googleTasksListId || "@default",
+        tasklist: tasklistId,
         maxResults: 100,
         showCompleted: true,
         showHidden: true,
@@ -291,7 +328,18 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           continue;
         }
 
-        collected.push({
+        let calendarEventId = metadata.calendarEventId;
+
+        if (!calendarEventId) {
+          calendarEventId =
+            (await findMatchingCalendarEventId(calendar, calendarId, {
+              title: item.title ?? "Untitled task",
+              notes,
+              dueDate: metadata.dueDate ?? item.due ?? null
+            }).catch(() => null)) ?? null;
+        }
+
+        const task: TaskRecord = {
           id: metadata.id,
           title: item.title ?? "Untitled task",
           dueDate: metadata.dueDate ?? item.due ?? null,
@@ -299,26 +347,24 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
-          calendarSync:
-            metadata.calendarEventId && metadata.calendarSync !== "failed"
-              ? "synced"
-              : metadata.calendarSync ?? (metadata.calendarEventId ? "synced" : "failed"),
+          calendarSync: calendarEventId ? "synced" : metadata.calendarSync ?? "failed",
           tasksSync: item.id ? "synced" : metadata.tasksSync ?? "failed",
-          calendarSyncMessage:
-            metadata.calendarEventId && metadata.calendarSync !== "failed"
-              ? "Calendar synced successfully."
-              : metadata.calendarSyncMessage ??
-                (metadata.calendarEventId
-                  ? "Calendar synced successfully."
-                  : "Calendar sync needs attention."),
-          tasksSyncMessage:
-            item.id
-              ? "Google Tasks synced successfully."
-              : metadata.tasksSyncMessage ?? "Google Tasks sync needs attention.",
+          calendarSyncMessage: calendarEventId
+            ? "Calendar synced successfully."
+            : metadata.calendarSyncMessage ?? "Calendar sync needs attention.",
+          tasksSyncMessage: item.id
+            ? "Google Tasks synced successfully."
+            : metadata.tasksSyncMessage ?? "Google Tasks sync needs attention.",
           lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
-          calendarEventId: metadata.calendarEventId,
+          calendarEventId,
           googleTaskId: item.id ?? null
-        });
+        };
+
+        if (item.id && calendarEventId && calendarEventId !== metadata.calendarEventId) {
+          await persistManagedTaskMetadata(tasksApi, tasklistId, item.id, task).catch(() => undefined);
+        }
+
+        collected.push(task);
       }
 
       pageToken = response.data.nextPageToken ?? undefined;

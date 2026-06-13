@@ -404,12 +404,6 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
     throw new Error("Google connection is required for the current task storage mode.");
   }
 
-  if (!task.googleTaskId) {
-    throw new Error("The Google-backed task is missing its Google Tasks ID.");
-  }
-
-  const googleTaskId = task.googleTaskId;
-
   const auth = await buildAuthorizedClient(session);
   const config = await getAppConfig();
   const calendar = google.calendar({ version: "v3", auth });
@@ -456,20 +450,36 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
       error instanceof Error ? error.message : "Calendar sync failed.";
   }
 
-  const tasksResponse = await tasksApi.tasks.update({
-    tasklist: config.googleTasksListId || "@default",
-    task: googleTaskId,
-    requestBody: {
-      title: nextTask.title,
-      notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
-      due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
-      status: nextTask.completed ? "completed" : "needsAction"
-    }
-  });
+  try {
+    const tasksResponse = nextTask.googleTaskId
+      ? await tasksApi.tasks.update({
+          tasklist: config.googleTasksListId || "@default",
+          task: nextTask.googleTaskId,
+          requestBody: {
+            title: nextTask.title,
+            notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
+            due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
+            status: nextTask.completed ? "completed" : "needsAction"
+          }
+        })
+      : await tasksApi.tasks.insert({
+          tasklist: config.googleTasksListId || "@default",
+          requestBody: {
+            title: nextTask.title,
+            notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
+            due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
+            status: nextTask.completed ? "completed" : "needsAction"
+          }
+        });
 
-  nextTask.googleTaskId = tasksResponse.data.id ?? nextTask.googleTaskId;
-  nextTask.tasksSync = "synced";
-  nextTask.tasksSyncMessage = "Google Tasks synced successfully.";
+    nextTask.googleTaskId = tasksResponse.data.id ?? nextTask.googleTaskId;
+    nextTask.tasksSync = "synced";
+    nextTask.tasksSyncMessage = "Google Tasks synced successfully.";
+  } catch (error) {
+    nextTask.tasksSync = "failed";
+    nextTask.tasksSyncMessage =
+      error instanceof Error ? error.message : "Google Tasks sync failed.";
+  }
 
   return nextTask;
 }

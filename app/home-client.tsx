@@ -87,6 +87,7 @@ const syncLabels = {
 const emptyForm = {
   title: "",
   dueDate: "",
+  endDate: "",
   notes: "",
   projectName: "",
   categoryName: "",
@@ -145,23 +146,27 @@ function getApiErrorMessage(result: unknown, fallback: string) {
   return fallback;
 }
 
-function toApiDateTime(value: string) {
+function toApiDateValue(value: string) {
   if (!value) {
     return "";
   }
 
-  return new Date(value).toISOString();
+  return value;
 }
 
-function toDateTimeLocalValue(value: string | null) {
+function toDateInputValue(value: string | null) {
   if (!value) {
     return "";
+  }
+
+  if (!value.includes("T")) {
+    return value;
   }
 
   const date = new Date(value);
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60 * 1000);
-  return localDate.toISOString().slice(0, 16);
+  return localDate.toISOString().slice(0, 10);
 }
 
 function getProjectMembers(projectName: string, members: RegisteredMember[]) {
@@ -302,7 +307,8 @@ export function HomeClient({
           },
           body: JSON.stringify({
             title: form.title,
-            dueDate: toApiDateTime(form.dueDate),
+            dueDate: toApiDateValue(form.dueDate),
+            endDate: toApiDateValue(form.endDate),
             notes: form.notes,
             projectName: form.projectName.trim(),
             categoryName: form.categoryName.trim(),
@@ -563,7 +569,8 @@ export function HomeClient({
     setEditingTaskId(task.id);
     setForm({
       title: task.title,
-      dueDate: toDateTimeLocalValue(task.dueDate),
+      dueDate: toDateInputValue(task.dueDate),
+      endDate: toDateInputValue(task.endDate),
       notes: task.notes,
       projectName: task.projectName ?? "",
       categoryName: task.categoryName ?? "",
@@ -623,6 +630,7 @@ export function HomeClient({
               ? JSON.stringify({
                   title: targetTask.title,
                   dueDate: targetTask.dueDate ?? "",
+                  endDate: targetTask.endDate ?? targetTask.dueDate ?? "",
                   notes: targetTask.notes,
                   projectName: targetTask.projectName ?? "",
                   categoryName: targetTask.categoryName ?? "",
@@ -918,7 +926,7 @@ export function HomeClient({
           <label>
             期限
             <input
-              type="datetime-local"
+              type="date"
               value={form.dueDate}
               onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))}
             />
@@ -931,6 +939,16 @@ export function HomeClient({
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
               placeholder="補足や次のアクションを書けます"
               rows={4}
+            />
+          </label>
+
+          <label>
+            終了日
+            <input
+              type="date"
+              value={form.endDate}
+              min={form.dueDate || undefined}
+              onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))}
             />
           </label>
 
@@ -1363,7 +1381,7 @@ export function HomeClient({
                 <dl className="task-meta">
                   <div>
                     <dt>期限</dt>
-                    <dd>{task.dueDate ? formatDate(task.dueDate) : "未設定"}</dd>
+                    <dd>{formatTaskPeriod(task)}</dd>
                   </div>
                   <div>
                     <dt>カレンダー</dt>
@@ -1430,6 +1448,14 @@ export function HomeClient({
 }
 
 function formatDate(value: string) {
+  if (!value.includes("T")) {
+    return new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    }).format(new Date(`${value}T00:00:00`));
+  }
+
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
     month: "short",
@@ -1437,6 +1463,18 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatTaskPeriod(task: Pick<TaskRecord, "dueDate" | "endDate">) {
+  if (!task.dueDate) {
+    return "未設定";
+  }
+
+  if (!task.endDate || task.endDate === task.dueDate) {
+    return formatDate(task.dueDate);
+  }
+
+  return `${formatDate(task.dueDate)}〜${formatDate(task.endDate)}`;
 }
 
 function SetupItem({ label, ready }: { label: string; ready: boolean }) {

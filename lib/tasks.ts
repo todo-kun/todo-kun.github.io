@@ -41,6 +41,7 @@ export async function listTasks(session: GoogleTokens | null = null) {
   const tasks = await readJsonFile<TaskRecord[]>(tasksFileName, []);
   const normalized = tasks.map((task) => ({
     ...task,
+    endDate: task.endDate ?? task.dueDate ?? null,
     projectName: task.projectName ?? "",
     categoryName: task.categoryName ?? "",
     memberEmails: task.memberEmails ?? []
@@ -65,6 +66,7 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     id: randomUUID(),
     title: input.title,
     dueDate: input.dueDate || null,
+    endDate: input.endDate || input.dueDate || null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -111,6 +113,7 @@ export async function updateTaskAndSync(
         ...current,
         title: input.title,
         dueDate: input.dueDate || null,
+        endDate: input.endDate || input.dueDate || null,
         notes: input.notes ?? "",
         projectName: input.projectName?.trim() ?? "",
         categoryName: input.categoryName?.trim() ?? "",
@@ -134,6 +137,7 @@ export async function updateTaskAndSync(
     ...tasks[index],
     title: input.title,
     dueDate: input.dueDate || null,
+    endDate: input.endDate || input.dueDate || null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -306,6 +310,7 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
         {
           title: task.title,
           dueDate: task.dueDate ?? "",
+          endDate: task.endDate ?? task.dueDate ?? "",
           notes: task.notes,
           projectName: task.projectName ?? "",
           categoryName: task.categoryName ?? "",

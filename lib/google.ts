@@ -49,6 +49,7 @@ type ManagedTaskMetadata = {
   version: 1;
   id: string;
   dueDate: string | null;
+  endDate: string | null;
   projectName: string;
   categoryName: string;
   memberEmails: string[];
@@ -172,6 +173,7 @@ function buildManagedTaskMetadata(task: Pick<
   TaskRecord,
   | "id"
   | "dueDate"
+  | "endDate"
   | "projectName"
   | "categoryName"
   | "memberEmails"
@@ -188,6 +190,7 @@ function buildManagedTaskMetadata(task: Pick<
     version: 1,
     id: task.id,
     dueDate: task.dueDate,
+    endDate: task.endDate,
     projectName: task.projectName,
     categoryName: task.categoryName,
     memberEmails: task.memberEmails,
@@ -208,6 +211,7 @@ export function encodeManagedTaskNotes(
     TaskRecord,
     | "id"
     | "dueDate"
+    | "endDate"
     | "projectName"
     | "categoryName"
     | "memberEmails"
@@ -271,7 +275,7 @@ async function persistManagedTaskMetadata(
     requestBody: {
       title: task.title,
       notes: encodeManagedTaskNotes(task.notes, task),
-      due: task.dueDate ? new Date(task.dueDate).toISOString() : undefined,
+      due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
       status: task.completed ? "completed" : "needsAction"
     }
   });
@@ -296,12 +300,36 @@ async function persistManagedTaskMetadataSafely(
 }
 
 function buildCalendarEventRequestBody(
-  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate" | "memberEmails">
+  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate" | "endDate" | "memberEmails">
 ) {
+  const hasDateOnlyStart = Boolean(task.dueDate && !task.dueDate.includes("T"));
+  const hasDateOnlyEnd = Boolean(task.endDate && !task.endDate.includes("T"));
+
+  if (task.dueDate && hasDateOnlyStart && (!task.endDate || hasDateOnlyEnd)) {
+    const start = task.dueDate;
+    const end = new Date(`${task.endDate ?? task.dueDate}T00:00:00`);
+    end.setDate(end.getDate() + 1);
+
+    return {
+      summary: task.title,
+      description: task.notes,
+      attendees: task.memberEmails.map((email) => ({ email })),
+      start: { date: start },
+      end: { date: end.toISOString().slice(0, 10) },
+      extendedProperties: {
+        private: {
+          [calendarTaskIdKey]: task.id
+        }
+      }
+    };
+  }
+
   const startDate = task.dueDate ? new Date(task.dueDate) : new Date();
-  const endDate = task.dueDate
-    ? new Date(new Date(task.dueDate).getTime() + 60 * 60 * 1000)
-    : new Date(startDate.getTime() + 60 * 60 * 1000);
+  const endDate = task.endDate
+    ? new Date(task.endDate)
+    : task.dueDate
+      ? new Date(new Date(task.dueDate).getTime() + 60 * 60 * 1000)
+      : new Date(startDate.getTime() + 60 * 60 * 1000);
 
   return {
     summary: task.title,
@@ -483,6 +511,7 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           id: metadata.id,
           title: item.title ?? "Untitled task",
           dueDate: metadata.dueDate ?? item.due ?? null,
+          endDate: metadata.endDate ?? metadata.dueDate ?? item.due ?? null,
           notes,
           projectName: metadata.projectName ?? "",
           categoryName: metadata.categoryName ?? "",
@@ -542,6 +571,7 @@ export async function createGoogleBackedTask(
     id: seed?.id ?? randomUUID(),
     title: input.title,
     dueDate: input.dueDate || null,
+    endDate: input.endDate || input.dueDate || null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -563,7 +593,7 @@ export async function createGoogleBackedTask(
     requestBody: {
       title: record.title,
       notes: encodeManagedTaskNotes(record.notes, record),
-      due: record.dueDate ? new Date(record.dueDate).toISOString() : undefined,
+      due: (record.endDate ?? record.dueDate) ? new Date(record.endDate ?? record.dueDate ?? "").toISOString() : undefined,
       status: record.completed ? "completed" : "needsAction"
     }
   });
@@ -648,7 +678,7 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
           requestBody: {
             title: nextTask.title,
             notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
-            due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
+            due: (nextTask.endDate ?? nextTask.dueDate) ? new Date(nextTask.endDate ?? nextTask.dueDate ?? "").toISOString() : undefined,
             status: nextTask.completed ? "completed" : "needsAction"
           }
         })
@@ -657,7 +687,7 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
           requestBody: {
             title: nextTask.title,
             notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
-            due: nextTask.dueDate ? new Date(nextTask.dueDate).toISOString() : undefined,
+            due: (nextTask.endDate ?? nextTask.dueDate) ? new Date(nextTask.endDate ?? nextTask.dueDate ?? "").toISOString() : undefined,
             status: nextTask.completed ? "completed" : "needsAction"
           }
         });
@@ -729,25 +759,19 @@ export async function syncTaskToGoogle(
     const config = await getAppConfig();
     const calendar = google.calendar({ version: "v3", auth });
     const tasks = google.tasks({ version: "v1", auth });
-    const startDate = input.dueDate ? new Date(input.dueDate) : new Date();
-    const endDate = input.dueDate
-      ? new Date(new Date(input.dueDate).getTime() + 60 * 60 * 1000)
-      : new Date(startDate.getTime() + 60 * 60 * 1000);
+    const eventBody = buildCalendarEventRequestBody({
+      id: randomUUID(),
+      title: input.title,
+      notes: input.notes ?? "",
+      dueDate: input.dueDate || null,
+      endDate: input.endDate || input.dueDate || null,
+      memberEmails: input.memberEmails ?? []
+    });
 
     const [calendarResponse, tasksResponse] = await Promise.all([
       calendar.events.insert({
         calendarId: config.googleCalendarId || "primary",
-        requestBody: {
-          summary: input.title,
-          description: input.notes,
-          attendees: (input.memberEmails ?? []).map((email) => ({ email })),
-          start: {
-            dateTime: startDate.toISOString()
-          },
-          end: {
-            dateTime: endDate.toISOString()
-          }
-        },
+        requestBody: eventBody,
         sendUpdates: "all"
       }),
       tasks.tasks.insert({
@@ -755,7 +779,7 @@ export async function syncTaskToGoogle(
         requestBody: {
           title: input.title,
           notes: input.notes,
-          due: input.dueDate ? new Date(input.dueDate).toISOString() : undefined
+          due: (input.endDate ?? input.dueDate) ? new Date(input.endDate ?? input.dueDate ?? "").toISOString() : undefined
         }
       })
     ]);
@@ -820,34 +844,19 @@ export async function syncStoredTaskToGoogle(
     const config = await getAppConfig();
     const calendar = google.calendar({ version: "v3", auth });
     const tasks = google.tasks({ version: "v1", auth });
-    const startDate = task.dueDate ? new Date(task.dueDate) : new Date();
-    const endDate = task.dueDate
-      ? new Date(new Date(task.dueDate).getTime() + 60 * 60 * 1000)
-      : new Date(startDate.getTime() + 60 * 60 * 1000);
+    const eventBody = buildCalendarEventRequestBody(task);
     const taskStatus = task.completed ? "completed" : "needsAction";
 
     const calendarResponse = task.calendarEventId
       ? await calendar.events.update({
           calendarId: config.googleCalendarId || "primary",
           eventId: task.calendarEventId,
-          requestBody: {
-            summary: task.title,
-            description: task.notes,
-            attendees: task.memberEmails.map((email) => ({ email })),
-            start: { dateTime: startDate.toISOString() },
-            end: { dateTime: endDate.toISOString() }
-          },
+          requestBody: eventBody,
           sendUpdates: "all"
         })
       : await calendar.events.insert({
           calendarId: config.googleCalendarId || "primary",
-          requestBody: {
-            summary: task.title,
-            description: task.notes,
-            attendees: task.memberEmails.map((email) => ({ email })),
-            start: { dateTime: startDate.toISOString() },
-            end: { dateTime: endDate.toISOString() }
-          },
+          requestBody: eventBody,
           sendUpdates: "all"
         });
 
@@ -858,7 +867,7 @@ export async function syncStoredTaskToGoogle(
           requestBody: {
             title: task.title,
             notes: task.notes,
-            due: task.dueDate ? new Date(task.dueDate).toISOString() : undefined,
+            due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
             status: taskStatus
           }
         })
@@ -867,7 +876,7 @@ export async function syncStoredTaskToGoogle(
           requestBody: {
             title: task.title,
             notes: task.notes,
-            due: task.dueDate ? new Date(task.dueDate).toISOString() : undefined,
+            due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
             status: taskStatus
           }
         });

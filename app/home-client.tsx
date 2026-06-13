@@ -127,6 +127,25 @@ function getApiErrorMessage(result: unknown, fallback: string) {
   return fallback;
 }
 
+function toApiDateTime(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  return new Date(value).toISOString();
+}
+
+function toDateTimeLocalValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+  return localDate.toISOString().slice(0, 16);
+}
+
 export function HomeClient({
   initialMessage,
   shouldCleanQuery
@@ -223,6 +242,7 @@ export function HomeClient({
           },
           body: JSON.stringify({
             ...form,
+            dueDate: toApiDateTime(form.dueDate),
             completed: editingTaskId
               ? tasks.find((task) => task.id === editingTaskId)?.completed ?? false
               : undefined
@@ -304,7 +324,7 @@ export function HomeClient({
     setEditingTaskId(task.id);
     setForm({
       title: task.title,
-      dueDate: task.dueDate ?? "",
+      dueDate: toDateTimeLocalValue(task.dueDate),
       notes: task.notes
     });
     setMessage(`「${task.title}」を編集中です。`);

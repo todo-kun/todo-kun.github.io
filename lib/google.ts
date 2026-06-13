@@ -59,6 +59,7 @@ type ManagedTaskMetadata = {
 };
 
 const taskMetadataMarker = "[TODOKUN_META]";
+const calendarTaskIdKey = "todokunTaskId";
 
 export async function hasGoogleOAuthConfig() {
   const config = await getAppConfig();
@@ -281,11 +282,71 @@ async function persistManagedTaskMetadataSafely(
   }
 }
 
+function buildCalendarEventRequestBody(task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate">) {
+  const startDate = task.dueDate ? new Date(task.dueDate) : new Date();
+  const endDate = task.dueDate
+    ? new Date(new Date(task.dueDate).getTime() + 60 * 60 * 1000)
+    : new Date(startDate.getTime() + 60 * 60 * 1000);
+
+  return {
+    summary: task.title,
+    description: task.notes,
+    start: { dateTime: startDate.toISOString() },
+    end: { dateTime: endDate.toISOString() },
+    extendedProperties: {
+      private: {
+        [calendarTaskIdKey]: task.id
+      }
+    }
+  };
+}
+
+async function getCalendarEventById(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  eventId: string
+) {
+  try {
+    const response = await calendar.events.get({
+      calendarId,
+      eventId
+    });
+
+    return response.data;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === 404
+    ) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 async function findMatchingCalendarEventId(
   calendar: ReturnType<typeof google.calendar>,
   calendarId: string,
-  task: Pick<TaskRecord, "title" | "notes" | "dueDate">
+  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate">
 ) {
+  const byPrivateProperty = await calendar.events
+    .list({
+      calendarId,
+      privateExtendedProperty: [`${calendarTaskIdKey}=${task.id}`],
+      singleEvents: true,
+      maxResults: 1
+    })
+    .catch(() => null);
+
+  const privateMatch = byPrivateProperty?.data.items?.[0]?.id;
+
+  if (privateMatch) {
+    return privateMatch;
+  }
+
   const anchorDate = task.dueDate ? new Date(task.dueDate) : new Date();
   const timeMin = new Date(anchorDate.getTime() - 12 * 60 * 60 * 1000).toISOString();
   const timeMax = new Date(anchorDate.getTime() + 36 * 60 * 60 * 1000).toISOString();
@@ -313,6 +374,34 @@ async function findMatchingCalendarEventId(
   });
 
   return matchingEvent?.id ?? null;
+}
+
+async function resolveCalendarEventId(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate">,
+  preferredEventId: string | null
+) {
+  if (preferredEventId) {
+    const existingEvent = await getCalendarEventById(calendar, calendarId, preferredEventId);
+
+    if (existingEvent?.id) {
+      return {
+        eventId: existingEvent.id,
+        deletedExternally: false
+      };
+    }
+
+    return {
+      eventId: null,
+      deletedExternally: true
+    };
+  }
+
+  return {
+    eventId: await findMatchingCalendarEventId(calendar, calendarId, task).catch(() => null),
+    deletedExternally: false
+  };
 }
 
 export async function listGoogleBackedTasks(session: GoogleTokens | null): Promise<TaskRecord[]> {
@@ -350,16 +439,29 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           continue;
         }
 
-        let calendarEventId = metadata.calendarEventId;
+        const resolution = await resolveCalendarEventId(
+          calendar,
+          calendarId,
+          {
+            id: metadata.id,
+            title: item.title ?? "Untitled task",
+            notes,
+            dueDate: metadata.dueDate ?? item.due ?? null
+          },
+          metadata.calendarEventId
+        );
 
-        if (!calendarEventId) {
-          calendarEventId =
-            (await findMatchingCalendarEventId(calendar, calendarId, {
-              title: item.title ?? "Untitled task",
-              notes,
-              dueDate: metadata.dueDate ?? item.due ?? null
-            }).catch(() => null)) ?? null;
+        if (item.id && resolution.deletedExternally) {
+          await tasksApi.tasks
+            .delete({
+              tasklist: tasklistId,
+              task: item.id
+            })
+            .catch(() => undefined);
+          continue;
         }
+
+        const calendarEventId = resolution.eventId;
 
         const task: TaskRecord = {
           id: metadata.id,
@@ -451,19 +553,9 @@ export async function createGoogleBackedTask(
     : "Google Tasks sync failed.";
 
   try {
-    const startDate = record.dueDate ? new Date(record.dueDate) : new Date();
-    const endDate = record.dueDate
-      ? new Date(new Date(record.dueDate).getTime() + 60 * 60 * 1000)
-      : new Date(startDate.getTime() + 60 * 60 * 1000);
-
     const calendarResponse = await calendar.events.insert({
       calendarId: config.googleCalendarId || "primary",
-      requestBody: {
-        summary: record.title,
-        description: record.notes,
-        start: { dateTime: startDate.toISOString() },
-        end: { dateTime: endDate.toISOString() }
-      }
+      requestBody: buildCalendarEventRequestBody(record)
     });
 
     record.calendarEventId = calendarResponse.data.id ?? null;
@@ -503,30 +595,15 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
   };
 
   try {
-    const startDate = nextTask.dueDate ? new Date(nextTask.dueDate) : new Date();
-    const endDate = nextTask.dueDate
-      ? new Date(new Date(nextTask.dueDate).getTime() + 60 * 60 * 1000)
-      : new Date(startDate.getTime() + 60 * 60 * 1000);
-
     const calendarResponse = nextTask.calendarEventId
       ? await calendar.events.update({
           calendarId: config.googleCalendarId || "primary",
           eventId: nextTask.calendarEventId,
-          requestBody: {
-            summary: nextTask.title,
-            description: nextTask.notes,
-            start: { dateTime: startDate.toISOString() },
-            end: { dateTime: endDate.toISOString() }
-          }
+          requestBody: buildCalendarEventRequestBody(nextTask)
         })
       : await calendar.events.insert({
           calendarId: config.googleCalendarId || "primary",
-          requestBody: {
-            summary: nextTask.title,
-            description: nextTask.notes,
-            start: { dateTime: startDate.toISOString() },
-            end: { dateTime: endDate.toISOString() }
-          }
+          requestBody: buildCalendarEventRequestBody(nextTask)
         });
 
     nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
@@ -806,12 +883,16 @@ export async function deleteTaskFromGoogle(task: TaskRecord, session: GoogleToke
   const config = await getAppConfig();
   const calendar = google.calendar({ version: "v3", auth });
   const tasks = google.tasks({ version: "v1", auth });
+  const calendarId = config.googleCalendarId || "primary";
+  const calendarEventId =
+    task.calendarEventId ??
+    (await findMatchingCalendarEventId(calendar, calendarId, task).catch(() => null));
 
   await Promise.allSettled([
-    task.calendarEventId
+    calendarEventId
       ? calendar.events.delete({
-          calendarId: config.googleCalendarId || "primary",
-          eventId: task.calendarEventId
+          calendarId,
+          eventId: calendarEventId
         })
       : Promise.resolve(),
     task.googleTaskId

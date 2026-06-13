@@ -50,6 +50,10 @@ type ManagedTaskMetadata = {
   updatedAt: string;
   calendarEventId: string | null;
   lastSyncAttemptedAt: string | null;
+  calendarSync: SyncState;
+  calendarSyncMessage: string;
+  tasksSync: SyncState;
+  tasksSyncMessage: string;
 };
 
 const taskMetadataMarker = "[TODOKUN_META]";
@@ -159,7 +163,15 @@ async function buildAuthorizedClient(tokens: GoogleTokens) {
 
 function buildManagedTaskMetadata(task: Pick<
   TaskRecord,
-  "id" | "createdAt" | "updatedAt" | "calendarEventId" | "lastSyncAttemptedAt"
+  | "id"
+  | "createdAt"
+  | "updatedAt"
+  | "calendarEventId"
+  | "lastSyncAttemptedAt"
+  | "calendarSync"
+  | "calendarSyncMessage"
+  | "tasksSync"
+  | "tasksSyncMessage"
 >): ManagedTaskMetadata {
   return {
     version: 1,
@@ -167,13 +179,28 @@ function buildManagedTaskMetadata(task: Pick<
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     calendarEventId: task.calendarEventId,
-    lastSyncAttemptedAt: task.lastSyncAttemptedAt
+    lastSyncAttemptedAt: task.lastSyncAttemptedAt,
+    calendarSync: task.calendarSync,
+    calendarSyncMessage: task.calendarSyncMessage,
+    tasksSync: task.tasksSync,
+    tasksSyncMessage: task.tasksSyncMessage
   };
 }
 
 export function encodeManagedTaskNotes(
   notes: string,
-  task: Pick<TaskRecord, "id" | "createdAt" | "updatedAt" | "calendarEventId" | "lastSyncAttemptedAt">
+  task: Pick<
+    TaskRecord,
+    | "id"
+    | "createdAt"
+    | "updatedAt"
+    | "calendarEventId"
+    | "lastSyncAttemptedAt"
+    | "calendarSync"
+    | "calendarSyncMessage"
+    | "tasksSync"
+    | "tasksSyncMessage"
+  >
 ) {
   const cleanNotes = notes.trimEnd();
   const metadata = Buffer.from(JSON.stringify(buildManagedTaskMetadata(task))).toString("base64url");
@@ -249,14 +276,17 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
-          calendarSync: metadata.calendarEventId ? "synced" : "failed",
-          tasksSync: item.id ? "synced" : "failed",
-          calendarSyncMessage: metadata.calendarEventId
-            ? "Calendar synced successfully."
-            : "Calendar sync needs attention.",
-          tasksSyncMessage: item.id
-            ? "Google Tasks synced successfully."
-            : "Google Tasks sync needs attention.",
+          calendarSync:
+            metadata.calendarSync ?? (metadata.calendarEventId ? "synced" : "failed"),
+          tasksSync: metadata.tasksSync ?? (item.id ? "synced" : "failed"),
+          calendarSyncMessage:
+            metadata.calendarSyncMessage ??
+            (metadata.calendarEventId
+              ? "Calendar synced successfully."
+              : "Calendar sync needs attention."),
+          tasksSyncMessage:
+            metadata.tasksSyncMessage ??
+            (item.id ? "Google Tasks synced successfully." : "Google Tasks sync needs attention."),
           lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
           calendarEventId: metadata.calendarEventId,
           googleTaskId: item.id ?? null

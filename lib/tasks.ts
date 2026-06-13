@@ -9,6 +9,7 @@ import {
   syncTaskToGoogle,
   type GoogleTokens
 } from "@/lib/google";
+import { ensureTaskTaxonomy, listTaxonomy, saveTaxonomy } from "@/lib/taxonomy";
 import type { TaskInput, TaskRecord } from "@/types/task";
 
 const tasksFileName = "tasks.json";
@@ -21,6 +22,10 @@ export type TaskBackup = {
   exportedAt: string;
   version: 1;
   tasks: TaskRecord[];
+  taxonomy?: {
+    projects: string[];
+    categories: string[];
+  };
 };
 
 export async function listTasks(session: GoogleTokens | null = null) {
@@ -29,10 +34,17 @@ export async function listTasks(session: GoogleTokens | null = null) {
   }
 
   const tasks = await readJsonFile<TaskRecord[]>(tasksFileName, []);
-  return tasks.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const normalized = tasks.map((task) => ({
+    ...task,
+    projectName: task.projectName ?? "",
+    categoryName: task.categoryName ?? ""
+  }));
+  return normalized.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function createTaskAndSync(input: TaskInput, session: GoogleTokens | null) {
+  await ensureTaskTaxonomy(input.projectName, input.categoryName);
+
   if (getTaskStorageProvider() === "google") {
     return createGoogleBackedTask(input, session);
   }
@@ -46,6 +58,8 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     title: input.title,
     dueDate: input.dueDate || null,
     notes: input.notes ?? "",
+    projectName: input.projectName?.trim() ?? "",
+    categoryName: input.categoryName?.trim() ?? "",
     createdAt: timestamp,
     updatedAt: timestamp,
     completed: false,
@@ -73,6 +87,8 @@ export async function updateTaskAndSync(
   input: TaskInput & { completed?: boolean },
   session: GoogleTokens | null
 ) {
+  await ensureTaskTaxonomy(input.projectName, input.categoryName);
+
   if (getTaskStorageProvider() === "google") {
     const tasks = await listTasks(session);
     const current = tasks.find((task) => task.id === taskId);
@@ -87,6 +103,8 @@ export async function updateTaskAndSync(
         title: input.title,
         dueDate: input.dueDate || null,
         notes: input.notes ?? "",
+        projectName: input.projectName?.trim() ?? "",
+        categoryName: input.categoryName?.trim() ?? "",
         completed: input.completed ?? current.completed
       },
       session
@@ -105,6 +123,8 @@ export async function updateTaskAndSync(
     title: input.title,
     dueDate: input.dueDate || null,
     notes: input.notes ?? "",
+    projectName: input.projectName?.trim() ?? "",
+    categoryName: input.categoryName?.trim() ?? "",
     completed: input.completed ?? tasks[index].completed,
     updatedAt: new Date().toISOString()
   };
@@ -237,15 +257,21 @@ export async function deleteTask(taskId: string, session: GoogleTokens | null) {
 
 export async function exportTasksBackup(session: GoogleTokens | null = null): Promise<TaskBackup> {
   const tasks = await listTasks(session);
+  const taxonomy = await listTaxonomy();
 
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
-    tasks
+    tasks,
+    taxonomy
   };
 }
 
 export async function importTasksBackup(backup: TaskBackup, session: GoogleTokens | null = null) {
+  if (backup.taxonomy) {
+    await saveTaxonomy(backup.taxonomy);
+  }
+
   if (getTaskStorageProvider() === "google") {
     const normalized = [...backup.tasks].sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt)
@@ -256,7 +282,9 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
         {
           title: task.title,
           dueDate: task.dueDate ?? "",
-          notes: task.notes
+          notes: task.notes,
+          projectName: task.projectName ?? "",
+          categoryName: task.categoryName ?? ""
         },
         session,
         {
@@ -273,6 +301,10 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
   const normalized = [...backup.tasks].sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt)
   );
+
+  for (const task of normalized) {
+    await ensureTaskTaxonomy(task.projectName, task.categoryName);
+  }
 
   await writeJsonFile(tasksFileName, normalized);
   return normalized;

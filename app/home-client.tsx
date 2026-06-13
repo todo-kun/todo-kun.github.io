@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useState, useTransition } from "react";
-import type { TaskRecord } from "@/types/task";
+import { ChangeEvent, FormEvent, useEffect, useState, useTransition } from "react";
+import type { TaskRecord, TaskTaxonomy, TaxonomyKind } from "@/types/task";
 
 type GoogleStatus = {
   configured: boolean;
@@ -13,6 +13,12 @@ type GoogleStatus = {
 type TasksResponse = {
   ok: boolean;
   tasks: TaskRecord[];
+};
+
+type TaxonomyResponse = {
+  ok: boolean;
+  taxonomy: TaskTaxonomy;
+  error?: string;
 };
 
 type SettingsResponse = {
@@ -51,6 +57,7 @@ type TaskMutationResponse = {
 type BulkSyncResponse = {
   ok: boolean;
   tasks: TaskRecord[];
+  error?: string;
 };
 
 type BackupResponse = {
@@ -59,17 +66,14 @@ type BackupResponse = {
     version: 1;
     exportedAt: string;
     tasks: TaskRecord[];
+    taxonomy?: TaskTaxonomy;
   };
-};
-
-type ApiErrorResponse = {
-  ok: false;
   error?: string;
 };
 
 const syncLabels = {
   synced: "連携済み",
-  not_connected: "Google 未接続",
+  not_connected: "Google未連携",
   missing_config: "設定不足",
   failed: "連携エラー"
 } as const;
@@ -77,7 +81,14 @@ const syncLabels = {
 const emptyForm = {
   title: "",
   dueDate: "",
-  notes: ""
+  notes: "",
+  projectName: "",
+  categoryName: ""
+};
+
+const emptyTaxonomy: TaskTaxonomy = {
+  projects: [],
+  categories: []
 };
 
 const emptySettingsForm = {
@@ -156,6 +167,11 @@ export function HomeClient({
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState(initialMessage);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [taxonomy, setTaxonomy] = useState<TaskTaxonomy>(emptyTaxonomy);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
@@ -176,6 +192,7 @@ export function HomeClient({
   const [isSavingSettings, startSettingsTransition] = useTransition();
   const [isExporting, startExportTransition] = useTransition();
   const [isImporting, startImportTransition] = useTransition();
+  const [isTaxonomySaving, startTaxonomyTransition] = useTransition();
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -183,6 +200,7 @@ export function HomeClient({
     void refreshTasks();
     void refreshSettings();
     void refreshSettingsHealth();
+    void refreshTaxonomy();
 
     if (shouldCleanQuery) {
       window.history.replaceState({}, "", "/");
@@ -201,6 +219,12 @@ export function HomeClient({
       const result = await readApiJson<TasksResponse>(response);
       setTasks(result.tasks);
     });
+  }
+
+  async function refreshTaxonomy() {
+    const response = await fetch("/api/taxonomy", { cache: "no-store" });
+    const result = await readApiJson<TaxonomyResponse>(response);
+    setTaxonomy(result.taxonomy);
   }
 
   async function refreshSettings() {
@@ -242,6 +266,8 @@ export function HomeClient({
           },
           body: JSON.stringify({
             ...form,
+            projectName: form.projectName.trim(),
+            categoryName: form.categoryName.trim(),
             dueDate: toApiDateTime(form.dueDate),
             completed: editingTaskId
               ? tasks.find((task) => task.id === editingTaskId)?.completed ?? false
@@ -249,10 +275,10 @@ export function HomeClient({
           })
         });
 
-        const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
+        const result = await readApiJson<TaskMutationResponse>(response);
 
-        if (!response.ok || !("task" in result) || !result.task) {
-          throw new Error(result.error ?? "Task could not be saved.");
+        if (!response.ok || !result.task) {
+          throw new Error(result.error ?? "タスクを保存できませんでした。");
         }
 
         const savedTask = result.task;
@@ -265,10 +291,11 @@ export function HomeClient({
           setMessage("タスクを登録しました。");
         }
 
+        await refreshTaxonomy();
         setForm(emptyForm);
         setEditingTaskId(null);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+        setMessage(error instanceof Error ? error.message : "タスクを保存できませんでした。");
       }
     });
   }
@@ -277,7 +304,7 @@ export function HomeClient({
     startDisconnectTransition(async () => {
       await fetch("/api/google/disconnect", { method: "POST" });
       await refreshStatus();
-      setMessage("Google 連携を解除しました。");
+      setMessage("Google連携を解除しました。");
     });
   }
 
@@ -295,10 +322,10 @@ export function HomeClient({
           body: JSON.stringify(settingsForm)
         });
 
-        const result = await readApiJson<SettingsResponse | ApiErrorResponse>(response);
+        const result = await readApiJson<SettingsResponse | { ok: false; error?: string }>(response);
 
         if (!response.ok || !("config" in result)) {
-          throw new Error(getApiErrorMessage(result, "Settings could not be saved."));
+          throw new Error(getApiErrorMessage(result, "設定を保存できませんでした。"));
         }
 
         setSettingsConfigured({
@@ -313,9 +340,50 @@ export function HomeClient({
         await refreshStatus();
         await refreshSettings();
         await refreshSettingsHealth();
-        setMessage("設定を保存しました。");
+        setMessage("連携設定を保存しました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+        setMessage(error instanceof Error ? error.message : "設定を保存できませんでした。");
+      }
+    });
+  }
+
+  async function handleTaxonomyCreate(kind: TaxonomyKind) {
+    const name = (kind === "project" ? newProjectName : newCategoryName).trim();
+
+    if (!name) {
+      setMessage(kind === "project" ? "プロジェクト名を入力してください。" : "カテゴリー名を入力してください。");
+      return;
+    }
+
+    startTaxonomyTransition(async () => {
+      try {
+        const response = await fetch("/api/taxonomy", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ kind, name })
+        });
+
+        const result = await readApiJson<TaxonomyResponse>(response);
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "保存できませんでした。");
+        }
+
+        setTaxonomy(result.taxonomy);
+
+        if (kind === "project") {
+          setNewProjectName("");
+          setForm((current) => ({ ...current, projectName: name }));
+          setMessage("プロジェクトフォルダを追加しました。");
+        } else {
+          setNewCategoryName("");
+          setForm((current) => ({ ...current, categoryName: name }));
+          setMessage("カテゴリーを追加しました。");
+        }
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "追加できませんでした。");
       }
     });
   }
@@ -325,7 +393,9 @@ export function HomeClient({
     setForm({
       title: task.title,
       dueDate: toDateTimeLocalValue(task.dueDate),
-      notes: task.notes
+      notes: task.notes,
+      projectName: task.projectName ?? "",
+      categoryName: task.categoryName ?? ""
     });
     setMessage(`「${task.title}」を編集中です。`);
   }
@@ -345,8 +415,8 @@ export function HomeClient({
         const response = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
 
         if (!response.ok) {
-          const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
-          throw new Error(result.error ?? "Task could not be deleted.");
+          const result = await readApiJson<TaskMutationResponse>(response);
+          throw new Error(result.error ?? "タスクを削除できませんでした。");
         }
 
         setTasks((current) => current.filter((task) => task.id !== taskId));
@@ -363,7 +433,7 @@ export function HomeClient({
       const targetTask = tasks.find((task) => task.id === taskId);
 
       if (!targetTask) {
-        throw new Error("Task not found.");
+        throw new Error("タスクが見つかりません。");
       }
 
       const response = await fetch(
@@ -382,30 +452,31 @@ export function HomeClient({
                   title: targetTask.title,
                   dueDate: targetTask.dueDate ?? "",
                   notes: targetTask.notes,
+                  projectName: targetTask.projectName ?? "",
+                  categoryName: targetTask.categoryName ?? "",
                   completed: !targetTask.completed
                 })
               : undefined
         }
       );
 
-      const result = await readApiJson<TaskMutationResponse | ApiErrorResponse>(response);
+      const result = await readApiJson<TaskMutationResponse>(response);
 
-      if (!response.ok || !("task" in result) || !result.task) {
-        throw new Error(result.error ?? "Task action failed.");
+      if (!response.ok || !result.task) {
+        throw new Error(result.error ?? "タスク操作に失敗しました。");
       }
 
       const updatedTask = result.task;
-
       setTasks((current) => current.map((task) => (task.id === updatedTask.id ? updatedTask : task)));
       setMessage(
         action === "sync"
-          ? "連携を再実行しました。"
+          ? "Google連携を再実行しました。"
           : updatedTask.completed
             ? "タスクを完了にしました。"
             : "タスクを進行中に戻しました。"
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+      setMessage(error instanceof Error ? error.message : "タスク操作に失敗しました。");
     } finally {
       setActiveTaskId(null);
     }
@@ -417,22 +488,22 @@ export function HomeClient({
 
       try {
         const response = await fetch("/api/tasks/sync", { method: "POST" });
-        const result = await readApiJson<BulkSyncResponse | ApiErrorResponse>(response);
+        const result = await readApiJson<BulkSyncResponse>(response);
 
-        if (!response.ok || !("tasks" in result)) {
-          throw new Error(getApiErrorMessage(result, "Bulk sync could not be completed."));
+        if (!response.ok) {
+          throw new Error(result.error ?? "一括再連携に失敗しました。");
         }
 
         if (result.tasks.length === 0) {
-          setMessage("未連携のタスクはありません。");
+          setMessage("再連携が必要なタスクはありません。");
           return;
         }
 
         const nextTasks = new Map(result.tasks.map((task) => [task.id, task]));
         setTasks((current) => current.map((task) => nextTasks.get(task.id) ?? task));
-        setMessage(`${result.tasks.length}件のタスクで連携を再実行しました。`);
+        setMessage(`${result.tasks.length}件のタスクを再連携しました。`);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+        setMessage(error instanceof Error ? error.message : "一括再連携に失敗しました。");
       }
     });
   }
@@ -443,10 +514,10 @@ export function HomeClient({
 
       try {
         const response = await fetch("/api/backup", { cache: "no-store" });
-        const result = await readApiJson<BackupResponse | ApiErrorResponse>(response);
+        const result = await readApiJson<BackupResponse>(response);
 
-        if (!response.ok || !("backup" in result)) {
-          throw new Error(getApiErrorMessage(result, "Backup export could not be created."));
+        if (!response.ok || !result.backup) {
+          throw new Error(result.error ?? "バックアップを書き出せませんでした。");
         }
 
         const blob = new Blob([JSON.stringify(result.backup, null, 2)], {
@@ -457,17 +528,17 @@ export function HomeClient({
         const stamp = new Date(result.backup.exportedAt).toISOString().replaceAll(":", "-");
 
         link.href = url;
-        link.download = `task-sync-backup-${stamp}.json`;
+        link.download = `todokun-backup-${stamp}.json`;
         link.click();
         URL.revokeObjectURL(url);
         setMessage("バックアップを書き出しました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+        setMessage(error instanceof Error ? error.message : "バックアップを書き出せませんでした。");
       }
     });
   }
 
-  async function handleImportBackup(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportBackup(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
 
     if (!file) {
@@ -487,18 +558,17 @@ export function HomeClient({
           body: text
         });
 
-        const result = await readApiJson<(BulkSyncResponse & { error?: string }) | ApiErrorResponse>(
-          response
-        );
+        const result = await readApiJson<BulkSyncResponse & { error?: string }>(response);
 
-        if (!response.ok || !("tasks" in result)) {
-          throw new Error(result.error ?? "Backup import failed.");
+        if (!response.ok) {
+          throw new Error(result.error ?? "バックアップの読み込みに失敗しました。");
         }
 
         setTasks(result.tasks);
+        await refreshTaxonomy();
         setMessage("バックアップを読み込みました。");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+        setMessage(error instanceof Error ? error.message : "バックアップの読み込みに失敗しました。");
       } finally {
         event.target.value = "";
       }
@@ -506,12 +576,20 @@ export function HomeClient({
   }
 
   const visibleTasks = tasks.filter((task) => {
-    if (filter === "open") {
-      return !task.completed;
+    if (filter === "open" && task.completed) {
+      return false;
     }
 
-    if (filter === "done") {
-      return task.completed;
+    if (filter === "done" && !task.completed) {
+      return false;
+    }
+
+    if (projectFilter !== "all" && (task.projectName || "") !== projectFilter) {
+      return false;
+    }
+
+    if (categoryFilter !== "all" && (task.categoryName || "") !== categoryFilter) {
+      return false;
     }
 
     return true;
@@ -520,10 +598,8 @@ export function HomeClient({
   const taskSummary = {
     total: tasks.length,
     open: tasks.filter((task) => !task.completed).length,
-    done: tasks.filter((task) => task.completed).length,
-    syncPending: tasks.filter(
-      (task) => task.calendarSync !== "synced" || task.tasksSync !== "synced"
-    ).length
+    projects: taxonomy.projects.length,
+    categories: taxonomy.categories.length
   };
 
   return (
@@ -531,14 +607,14 @@ export function HomeClient({
       <section className="hero-card">
         <div className="hero-copy">
           <div className="brand-chip">タスク管理アプリ「トドくん」</div>
-          <h1>ひとつ登録するだけで、予定も To Do もまとめてトドく。</h1>
+          <h1>プロジェクトごとに整理して、やることをトドける。</h1>
           <p className="lead">
-            トドくんは、ブラウザだけで使えるやさしいタスク管理アプリです。パソコンでもスマホでも、
-            登録したタスクを Google カレンダーと Google To Do に自動で反映できます。
+            トドくんは、ブラウザだけで使えるやさしいタスク管理アプリです。プロジェクトフォルダを作って、
+            タスクの種類も分類しながら、Google カレンダーと Google To Do に自動で反映できます。
           </p>
           <div className="hero-points" aria-label="アプリの特徴">
-            <div className="hero-point">ブラウザ完結</div>
-            <div className="hero-point">スマホ対応</div>
+            <div className="hero-point">プロジェクト整理</div>
+            <div className="hero-point">カテゴリー追加</div>
             <div className="hero-point">Google 自動連携</div>
           </div>
         </div>
@@ -555,7 +631,7 @@ export function HomeClient({
             />
             <div className="mascot-bubble">
               <strong>今日のひとこと</strong>
-              <p>大事な予定も、やることも、トドくんが見落とさないように整えます。</p>
+              <p>案件ごとでも作業の種類ごとでも、見失わないようにトドくんが整理します。</p>
             </div>
           </div>
           <div className="hero-status">
@@ -566,7 +642,7 @@ export function HomeClient({
                   ? "Google 連携中"
                   : googleStatus.configured
                     ? "Google 連携の準備完了"
-                    : "Google 設定が必要です"}
+                    : "Google 設定が未完了"}
               </span>
             </div>
 
@@ -594,9 +670,7 @@ export function HomeClient({
         <form className="task-card" onSubmit={handleSubmit}>
           <div className="section-heading">
             <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
-            <p>
-              ここで登録した内容が、Google 連携済みならカレンダーと To Do に自動で反映されます。
-            </p>
+            <p>登録した内容は、Google 連携済みならカレンダーと To Do に自動反映されます。</p>
           </div>
 
           <label>
@@ -604,10 +678,46 @@ export function HomeClient({
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="見積もり資料を確認する"
+              placeholder="例: 補助金資料の最終確認"
               required
             />
           </label>
+
+          <div className="field-grid">
+            <label>
+              プロジェクトフォルダ
+              <select
+                value={form.projectName}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, projectName: event.target.value }))
+                }
+              >
+                <option value="">未設定</option>
+                {taxonomy.projects.map((project) => (
+                  <option key={project} value={project}>
+                    {project}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              タスクの種類
+              <select
+                value={form.categoryName}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, categoryName: event.target.value }))
+                }
+              >
+                <option value="">未設定</option>
+                {taxonomy.categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <label>
             期限
@@ -623,14 +733,14 @@ export function HomeClient({
             <textarea
               value={form.notes}
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="補足、担当者、打ち合わせ内容など"
+              placeholder="補足や次のアクションを書けます"
               rows={5}
             />
           </label>
 
           <div className="action-row">
             <button type="submit" disabled={isSaving}>
-              {isSaving ? "保存中..." : editingTaskId ? "変更を保存" : "タスクを登録"}
+              {isSaving ? "保存中..." : editingTaskId ? "更新する" : "登録する"}
             </button>
             {editingTaskId ? (
               <button className="ghost-button" type="button" onClick={cancelEdit}>
@@ -668,7 +778,7 @@ export function HomeClient({
                 }
                 placeholder={
                   settingsConfigured.googleClientSecretConfigured
-                    ? "保存済みです。変更時のみ入力してください。"
+                    ? "設定済みです。変更時だけ入力してください"
                     : "Google OAuth の Client Secret"
                 }
               />
@@ -723,16 +833,16 @@ export function HomeClient({
                 }
                 placeholder={
                   settingsConfigured.appSecretConfigured
-                    ? "保存済みです。変更時のみ入力してください。"
-                    : "長めのランダム文字列"
+                    ? "設定済みです。変更時だけ入力してください"
+                    : "アプリ暗号化用の秘密文字列"
                 }
               />
             </label>
             <div className="settings-hints">
               <p>
                 {settingsConfigured.appSecretConfigured
-                  ? "App Secret は保存済みです。空欄のままなら現在の値を使い続けます。"
-                  : "App Secret を空欄にした場合は、アプリ側で自動生成します。"}
+                  ? "App Secret は設定済みです。変更時だけ再入力してください。"
+                  : "App Secret を設定すると、このブラウザから Google 連携を始められます。"}
               </p>
             </div>
             <button type="submit" disabled={isSavingSettings}>
@@ -742,10 +852,82 @@ export function HomeClient({
         </aside>
       </section>
 
+      <section className="manager-grid">
+        <article className="manager-card">
+          <div className="section-heading">
+            <h2>プロジェクトフォルダ</h2>
+            <p>案件ごとの箱を先に作っておくと、あとから迷わず登録できます。</p>
+          </div>
+          <div className="inline-form">
+            <input
+              value={newProjectName}
+              onChange={(event) => setNewProjectName(event.target.value)}
+              placeholder="例: 補助金申請 / 既存顧客対応"
+            />
+            <button
+              disabled={isTaxonomySaving}
+              onClick={() => void handleTaxonomyCreate("project")}
+              type="button"
+            >
+              追加
+            </button>
+          </div>
+          <div className="chip-list">
+            {taxonomy.projects.length === 0 ? (
+              <span className="empty-chip">まだプロジェクトはありません</span>
+            ) : (
+              taxonomy.projects.map((project) => (
+                <button
+                  className="chip-button"
+                  key={project}
+                  onClick={() => setForm((current) => ({ ...current, projectName: project }))}
+                  type="button"
+                >
+                  {project}
+                </button>
+              ))
+            )}
+          </div>
+        </article>
+
+        <article className="manager-card">
+          <div className="section-heading">
+            <h2>タスクの種類</h2>
+            <p>メール送信、アポ調整、資料作成のように、作業の種類でも整理できます。</p>
+          </div>
+          <div className="inline-form">
+            <input
+              value={newCategoryName}
+              onChange={(event) => setNewCategoryName(event.target.value)}
+              placeholder="例: 申請入力 / 電話確認 / 請求処理"
+            />
+            <button
+              disabled={isTaxonomySaving}
+              onClick={() => void handleTaxonomyCreate("category")}
+              type="button"
+            >
+              追加
+            </button>
+          </div>
+          <div className="chip-list">
+            {taxonomy.categories.map((category) => (
+              <button
+                className="chip-button"
+                key={category}
+                onClick={() => setForm((current) => ({ ...current, categoryName: category }))}
+                type="button"
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        </article>
+      </section>
+
       <section className="setup-card">
         <div className="section-heading">
-          <h2>はじめの準備チェック</h2>
-          <p>以下を埋めると、ブラウザ上から Google 連携を開始できます。</p>
+          <h2>はじめの連携チェック</h2>
+          <p>上から順にそろえると、ブラウザ上から Google 連携を始めやすくなります。</p>
         </div>
         <div className="checklist-grid">
           <SetupItem label="Google Client ID" ready={settingsHealth.googleClientId} />
@@ -759,7 +941,7 @@ export function HomeClient({
         <p className="setup-summary">
           {settingsHealth.readyForGoogleConnect
             ? "このブラウザから Google 連携を始められます。"
-            : "不足している項目を保存してから Google 連携を進めてください。"}
+            : "足りない項目を保存してから Google 連携を進めてください。"}
         </p>
       </section>
 
@@ -773,12 +955,12 @@ export function HomeClient({
           <strong>{taskSummary.open}</strong>
         </article>
         <article className="stat-card">
-          <span className="stat-label">完了</span>
-          <strong>{taskSummary.done}</strong>
+          <span className="stat-label">プロジェクト数</span>
+          <strong>{taskSummary.projects}</strong>
         </article>
         <article className="stat-card">
-          <span className="stat-label">未連携</span>
-          <strong>{taskSummary.syncPending}</strong>
+          <span className="stat-label">カテゴリー数</span>
+          <strong>{taskSummary.categories}</strong>
         </article>
       </section>
 
@@ -786,10 +968,10 @@ export function HomeClient({
         <div className="section-heading section-heading-row">
           <div>
             <h2>タスク一覧</h2>
-            <p>最近のタスクと、Google への反映状況をここでまとめて確認できます。</p>
+            <p>プロジェクトや種類ごとに絞り込みながら、進み具合と Google 反映状況を確認できます。</p>
           </div>
           <div className="toolbar-row">
-            <div className="filter-row" role="tablist" aria-label="タスクの絞り込み">
+            <div className="filter-row" role="tablist" aria-label="タスクの状態">
               <button
                 className="ghost-button"
                 data-selected={filter === "all"}
@@ -815,9 +997,25 @@ export function HomeClient({
                 完了
               </button>
             </div>
+            <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+              <option value="all">全プロジェクト</option>
+              {taxonomy.projects.map((project) => (
+                <option key={project} value={project}>
+                  {project}
+                </option>
+              ))}
+            </select>
+            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+              <option value="all">全カテゴリー</option>
+              {taxonomy.categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
             <button
               className="ghost-button"
-              disabled={isBulkSyncing || taskSummary.syncPending === 0}
+              disabled={isBulkSyncing}
               onClick={() => void handleBulkSync()}
               type="button"
             >
@@ -832,7 +1030,7 @@ export function HomeClient({
               {isExporting ? "書き出し中..." : "バックアップを書き出す"}
             </button>
             <label className="ghost-button file-button">
-              {isImporting ? "読み込み中..." : "バックアップを読み込む"}
+              {isImporting ? "読込中..." : "バックアップを読み込む"}
               <input
                 accept="application/json"
                 className="file-input"
@@ -857,8 +1055,8 @@ export function HomeClient({
             <div className="empty-state">
               <p>
                 {tasks.length === 0
-                  ? "まだタスクがありません。上のフォームから最初の1件を登録しましょう。"
-                  : "この条件に当てはまるタスクはありません。"}
+                  ? "まだタスクがありません。最初の1件を登録してみましょう。"
+                  : "この条件に合うタスクはありません。"}
               </p>
             </div>
           ) : (
@@ -868,6 +1066,12 @@ export function HomeClient({
                   <div className="task-title-row">
                     <h3>{task.title}</h3>
                     <span className="task-badge">{task.completed ? "完了" : "進行中"}</span>
+                  </div>
+                  <div className="task-chip-row">
+                    {task.projectName ? <span className="task-chip">案件: {task.projectName}</span> : null}
+                    {task.categoryName ? (
+                      <span className="task-chip">種類: {task.categoryName}</span>
+                    ) : null}
                   </div>
                   <p>{task.notes || "メモはまだありません。"}</p>
                 </div>
@@ -896,7 +1100,7 @@ export function HomeClient({
                   </p>
                   <p>
                     <strong>最終連携:</strong>{" "}
-                    {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行していません"}
+                    {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行されていません"}
                   </p>
                 </div>
 

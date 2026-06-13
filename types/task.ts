@@ -3,22 +3,39 @@ import { z } from "zod";
 export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Task title is required.").max(120),
   dueDate: z.string().optional(),
-  notes: z.string().max(1000).optional()
+  notes: z.string().max(1000).optional(),
+  projectName: z.string().trim().max(80).optional(),
+  categoryName: z.string().trim().max(80).optional()
 });
 
 export const taskUpdateSchema = taskInputSchema.extend({
   completed: z.boolean().optional()
 });
 
+export const taxonomyKindSchema = z.enum(["project", "category"]);
+
+export const taxonomyEntrySchema = z.object({
+  kind: taxonomyKindSchema,
+  name: z.string().trim().min(1, "Name is required.").max(80)
+});
+
 export type SyncState = "synced" | "not_connected" | "missing_config" | "failed";
 
 export type TaskInput = z.infer<typeof taskInputSchema>;
+export type TaxonomyKind = z.infer<typeof taxonomyKindSchema>;
+
+export type TaskTaxonomy = {
+  projects: string[];
+  categories: string[];
+};
 
 export type TaskRecord = {
   id: string;
   title: string;
   dueDate: string | null;
   notes: string;
+  projectName: string;
+  categoryName: string;
   createdAt: string;
   updatedAt: string;
   completed: boolean;

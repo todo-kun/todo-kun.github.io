@@ -48,6 +48,8 @@ type ManagedTaskMetadata = {
   version: 1;
   id: string;
   dueDate: string | null;
+  projectName: string;
+  categoryName: string;
   createdAt: string;
   updatedAt: string;
   calendarEventId: string | null;
@@ -168,6 +170,8 @@ function buildManagedTaskMetadata(task: Pick<
   TaskRecord,
   | "id"
   | "dueDate"
+  | "projectName"
+  | "categoryName"
   | "createdAt"
   | "updatedAt"
   | "calendarEventId"
@@ -181,6 +185,8 @@ function buildManagedTaskMetadata(task: Pick<
     version: 1,
     id: task.id,
     dueDate: task.dueDate,
+    projectName: task.projectName,
+    categoryName: task.categoryName,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     calendarEventId: task.calendarEventId,
@@ -198,6 +204,8 @@ export function encodeManagedTaskNotes(
     TaskRecord,
     | "id"
     | "dueDate"
+    | "projectName"
+    | "categoryName"
     | "createdAt"
     | "updatedAt"
     | "calendarEventId"
@@ -468,6 +476,8 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           title: item.title ?? "Untitled task",
           dueDate: metadata.dueDate ?? item.due ?? null,
           notes,
+          projectName: metadata.projectName ?? "",
+          categoryName: metadata.categoryName ?? "",
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
@@ -524,6 +534,8 @@ export async function createGoogleBackedTask(
     title: input.title,
     dueDate: input.dueDate || null,
     notes: input.notes ?? "",
+    projectName: input.projectName?.trim() ?? "",
+    categoryName: input.categoryName?.trim() ?? "",
     createdAt: seed?.createdAt ?? timestamp,
     updatedAt: timestamp,
     completed: seed?.completed ?? false,

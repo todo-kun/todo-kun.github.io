@@ -30,12 +30,16 @@ test("task lifecycle works end to end without Google config", async () => {
     {
       title: "Prepare proposal",
       dueDate: "2026-06-15T10:00",
-      notes: "Include pricing details"
+      notes: "Include pricing details",
+      projectName: "補助金案件",
+      categoryName: "資料作成"
     },
     null
   );
 
   assert.equal(created.title, "Prepare proposal");
+  assert.equal(created.projectName, "補助金案件");
+  assert.equal(created.categoryName, "資料作成");
   assert.equal(created.completed, false);
   assert.equal(created.calendarSync, "missing_config");
   assert.equal(created.tasksSync, "missing_config");
@@ -52,6 +56,8 @@ test("task lifecycle works end to end without Google config", async () => {
       title: "Prepare final proposal",
       dueDate: "2026-06-15T12:00",
       notes: "Include pricing and delivery details",
+      projectName: "補助金案件",
+      categoryName: "資料作成",
       completed: true
     },
     null
@@ -81,15 +87,24 @@ test("tasks are persisted to the local data file", async () => {
     {
       title: "Call supplier",
       dueDate: "",
-      notes: "Ask about lead time"
+      notes: "Ask about lead time",
+      projectName: "仕入れ管理",
+      categoryName: "メール送信"
     },
     null
   );
 
   const raw = await readFile(path.join(process.cwd(), "data", "tasks.json"), "utf8");
-  const parsed = JSON.parse(raw) as Array<{ title: string; calendarSyncMessage: string }>;
+  const parsed = JSON.parse(raw) as Array<{
+    title: string;
+    projectName: string;
+    categoryName: string;
+    calendarSyncMessage: string;
+  }>;
 
   assert.equal(parsed[0]?.title, "Call supplier");
+  assert.equal(parsed[0]?.projectName, "仕入れ管理");
+  assert.equal(parsed[0]?.categoryName, "メール送信");
   assert.equal(parsed[0]?.calendarSyncMessage, "Google settings are incomplete.");
 });
 
@@ -100,7 +115,9 @@ test("tasks can be exported and imported as a backup", async () => {
     {
       title: "Backup target",
       dueDate: "2026-06-20T09:00",
-      notes: "Keep this safe"
+      notes: "Keep this safe",
+      projectName: "顧客対応",
+      categoryName: "アポ調整"
     },
     null
   );
@@ -108,19 +125,26 @@ test("tasks can be exported and imported as a backup", async () => {
   const backup = await tasksModule.exportTasksBackup();
   assert.equal(backup.version, 1);
   assert.equal(backup.tasks.length, 1);
+  assert.ok(backup.taxonomy?.projects.includes("顧客対応"));
+  assert.ok(backup.taxonomy?.categories.includes("アポ調整"));
 
   await tasksModule.importTasksBackup({
     version: 1,
     exportedAt: backup.exportedAt,
+    taxonomy: backup.taxonomy,
     tasks: [
       {
         ...backup.tasks[0],
         id: "restored-task",
-        title: "Restored task"
+        title: "Restored task",
+        projectName: "再登録案件",
+        categoryName: "資料作成"
       }
     ]
   });
 
   const restored = await tasksModule.listTasks();
   assert.equal(restored[0]?.title, "Restored task");
+  assert.equal(restored[0]?.projectName, "再登録案件");
+  assert.equal(restored[0]?.categoryName, "資料作成");
 });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import type { tasks_v1 } from "googleapis";
 import { getAppConfig } from "@/lib/app-config";
 import { decryptJson, encryptJson } from "@/lib/crypto";
 import type { SyncState, TaskInput, TaskRecord } from "@/types/task";
@@ -240,6 +241,24 @@ export function parseManagedTaskNotes(rawNotes: string | null | undefined) {
   }
 }
 
+async function persistManagedTaskMetadata(
+  tasksApi: tasks_v1.Tasks,
+  tasklist: string,
+  taskId: string,
+  task: TaskRecord
+) {
+  await tasksApi.tasks.update({
+    tasklist,
+    task: taskId,
+    requestBody: {
+      title: task.title,
+      notes: encodeManagedTaskNotes(task.notes, task),
+      due: task.dueDate ? new Date(task.dueDate).toISOString() : undefined,
+      status: task.completed ? "completed" : "needsAction"
+    }
+  });
+}
+
 export async function listGoogleBackedTasks(session: GoogleTokens | null): Promise<TaskRecord[]> {
   if (!(await hasGoogleOAuthConfig())) {
     return [];
@@ -281,16 +300,21 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
           calendarSync:
-            metadata.calendarSync ?? (metadata.calendarEventId ? "synced" : "failed"),
-          tasksSync: metadata.tasksSync ?? (item.id ? "synced" : "failed"),
+            metadata.calendarEventId && metadata.calendarSync !== "failed"
+              ? "synced"
+              : metadata.calendarSync ?? (metadata.calendarEventId ? "synced" : "failed"),
+          tasksSync: item.id ? "synced" : metadata.tasksSync ?? "failed",
           calendarSyncMessage:
-            metadata.calendarSyncMessage ??
-            (metadata.calendarEventId
+            metadata.calendarEventId && metadata.calendarSync !== "failed"
               ? "Calendar synced successfully."
-              : "Calendar sync needs attention."),
+              : metadata.calendarSyncMessage ??
+                (metadata.calendarEventId
+                  ? "Calendar synced successfully."
+                  : "Calendar sync needs attention."),
           tasksSyncMessage:
-            metadata.tasksSyncMessage ??
-            (item.id ? "Google Tasks synced successfully." : "Google Tasks sync needs attention."),
+            item.id
+              ? "Google Tasks synced successfully."
+              : metadata.tasksSyncMessage ?? "Google Tasks sync needs attention.",
           lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
           calendarEventId: metadata.calendarEventId,
           googleTaskId: item.id ?? null
@@ -321,6 +345,7 @@ export async function createGoogleBackedTask(
 
   const auth = await buildAuthorizedClient(session);
   const config = await getAppConfig();
+  const tasklistId = config.googleTasksListId || "@default";
   const calendar = google.calendar({ version: "v3", auth });
   const tasksApi = google.tasks({ version: "v1", auth });
   const timestamp = new Date().toISOString();
@@ -342,7 +367,7 @@ export async function createGoogleBackedTask(
   };
 
   const insertedTask = await tasksApi.tasks.insert({
-    tasklist: config.googleTasksListId || "@default",
+    tasklist: tasklistId,
     requestBody: {
       title: record.title,
       notes: encodeManagedTaskNotes(record.notes, record),
@@ -383,17 +408,7 @@ export async function createGoogleBackedTask(
   }
 
   if (record.googleTaskId) {
-    const googleTaskId = record.googleTaskId;
-    await tasksApi.tasks.update({
-      tasklist: config.googleTasksListId || "@default",
-      task: googleTaskId,
-      requestBody: {
-        title: record.title,
-        notes: encodeManagedTaskNotes(record.notes, record),
-        due: record.dueDate ? new Date(record.dueDate).toISOString() : undefined,
-        status: record.completed ? "completed" : "needsAction"
-      }
-    });
+    await persistManagedTaskMetadata(tasksApi, tasklistId, record.googleTaskId, record);
   }
 
   return record;
@@ -410,6 +425,7 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
 
   const auth = await buildAuthorizedClient(session);
   const config = await getAppConfig();
+  const tasklistId = config.googleTasksListId || "@default";
   const calendar = google.calendar({ version: "v3", auth });
   const tasksApi = google.tasks({ version: "v1", auth });
   const nextTask: TaskRecord = {
@@ -457,7 +473,7 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
   try {
     const tasksResponse = nextTask.googleTaskId
       ? await tasksApi.tasks.update({
-          tasklist: config.googleTasksListId || "@default",
+          tasklist: tasklistId,
           task: nextTask.googleTaskId,
           requestBody: {
             title: nextTask.title,
@@ -467,7 +483,7 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
           }
         })
       : await tasksApi.tasks.insert({
-          tasklist: config.googleTasksListId || "@default",
+          tasklist: tasklistId,
           requestBody: {
             title: nextTask.title,
             notes: encodeManagedTaskNotes(nextTask.notes, nextTask),
@@ -479,10 +495,18 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
     nextTask.googleTaskId = tasksResponse.data.id ?? nextTask.googleTaskId;
     nextTask.tasksSync = "synced";
     nextTask.tasksSyncMessage = "Google Tasks synced successfully.";
+    if (nextTask.googleTaskId) {
+      await persistManagedTaskMetadata(tasksApi, tasklistId, nextTask.googleTaskId, nextTask);
+    }
   } catch (error) {
     nextTask.tasksSync = "failed";
     nextTask.tasksSyncMessage =
       error instanceof Error ? error.message : "Google Tasks sync failed.";
+    if (nextTask.googleTaskId) {
+      await persistManagedTaskMetadata(tasksApi, tasklistId, nextTask.googleTaskId, nextTask).catch(
+        () => undefined
+      );
+    }
   }
 
   return nextTask;

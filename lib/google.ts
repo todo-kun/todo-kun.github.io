@@ -42,6 +42,7 @@ function compactGoogleTokens(tokens: GoogleTokens): GoogleTokens {
 type SyncResult = {
   status: SyncState;
   externalId: string | null;
+  reminderExternalId?: string | null;
   message: string;
 };
 
@@ -50,12 +51,15 @@ type ManagedTaskMetadata = {
   id: string;
   dueDate: string | null;
   endDate: string | null;
+  reminderHoursBefore: number | null;
+  dailyReminderHour: number | null;
   projectName: string;
   categoryName: string;
   memberEmails: string[];
   createdAt: string;
   updatedAt: string;
   calendarEventId: string | null;
+  reminderEventId: string | null;
   lastSyncAttemptedAt: string | null;
   calendarSync: SyncState;
   calendarSyncMessage: string;
@@ -65,6 +69,8 @@ type ManagedTaskMetadata = {
 
 const taskMetadataMarker = "[TODOKUN_META]";
 const calendarTaskIdKey = "todokunTaskId";
+const reminderTaskIdKey = "todokunReminderTaskId";
+const googleCalendarTimeZone = "Asia/Tokyo";
 
 export async function hasGoogleOAuthConfig() {
   const config = await getAppConfig();
@@ -174,12 +180,15 @@ function buildManagedTaskMetadata(task: Pick<
   | "id"
   | "dueDate"
   | "endDate"
+  | "reminderHoursBefore"
+  | "dailyReminderHour"
   | "projectName"
   | "categoryName"
   | "memberEmails"
   | "createdAt"
   | "updatedAt"
   | "calendarEventId"
+  | "reminderEventId"
   | "lastSyncAttemptedAt"
   | "calendarSync"
   | "calendarSyncMessage"
@@ -191,12 +200,15 @@ function buildManagedTaskMetadata(task: Pick<
     id: task.id,
     dueDate: task.dueDate,
     endDate: task.endDate,
+    reminderHoursBefore: task.reminderHoursBefore,
+    dailyReminderHour: task.dailyReminderHour,
     projectName: task.projectName,
     categoryName: task.categoryName,
     memberEmails: task.memberEmails,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     calendarEventId: task.calendarEventId,
+    reminderEventId: task.reminderEventId,
     lastSyncAttemptedAt: task.lastSyncAttemptedAt,
     calendarSync: task.calendarSync,
     calendarSyncMessage: task.calendarSyncMessage,
@@ -212,12 +224,15 @@ export function encodeManagedTaskNotes(
     | "id"
     | "dueDate"
     | "endDate"
+    | "reminderHoursBefore"
+    | "dailyReminderHour"
     | "projectName"
     | "categoryName"
     | "memberEmails"
     | "createdAt"
     | "updatedAt"
     | "calendarEventId"
+    | "reminderEventId"
     | "lastSyncAttemptedAt"
     | "calendarSync"
     | "calendarSyncMessage"
@@ -257,6 +272,84 @@ export function parseManagedTaskNotes(rawNotes: string | null | undefined) {
   } catch {
     return { notes: rawNotes, metadata: null as ManagedTaskMetadata | null };
   }
+}
+
+function buildCalendarReminders(task: Pick<TaskRecord, "reminderHoursBefore">) {
+  if (task.reminderHoursBefore === null || task.reminderHoursBefore === undefined) {
+    return undefined;
+  }
+
+  return {
+    useDefault: false,
+    overrides: [
+      {
+        method: "popup" as const,
+        minutes: Math.max(0, task.reminderHoursBefore * 60)
+      }
+    ]
+  };
+}
+
+function getReminderRangeStart(task: Pick<TaskRecord, "dueDate">) {
+  return task.dueDate;
+}
+
+function getReminderRangeEnd(task: Pick<TaskRecord, "dueDate" | "endDate">) {
+  return task.endDate ?? task.dueDate;
+}
+
+function createTokyoDateTime(date: string, hour: number) {
+  const normalizedHour = String(hour).padStart(2, "0");
+  return new Date(`${date}T${normalizedHour}:00:00+09:00`);
+}
+
+function createReminderUntil(date: string) {
+  return new Date(`${date}T23:59:59+09:00`)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildDailyReminderEventRequestBody(
+  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate" | "endDate" | "memberEmails" | "dailyReminderHour">
+) {
+  if (task.dailyReminderHour === null || task.dailyReminderHour === undefined) {
+    return null;
+  }
+
+  const startDate = getReminderRangeStart(task);
+  const endDate = getReminderRangeEnd(task);
+
+  if (!startDate || !endDate || startDate.includes("T") || endDate.includes("T")) {
+    return null;
+  }
+
+  const start = createTokyoDateTime(startDate, task.dailyReminderHour);
+  const end = new Date(start.getTime() + 15 * 60 * 1000);
+
+  return {
+    summary: `リマインド: ${task.title}`,
+    description: task.notes,
+    attendees: task.memberEmails.map((email) => ({ email })),
+    start: {
+      dateTime: start.toISOString(),
+      timeZone: googleCalendarTimeZone
+    },
+    end: {
+      dateTime: end.toISOString(),
+      timeZone: googleCalendarTimeZone
+    },
+    recurrence: [`RRULE:FREQ=DAILY;UNTIL=${createReminderUntil(endDate)}`],
+    reminders: {
+      useDefault: false,
+      overrides: [{ method: "popup" as const, minutes: 0 }]
+    },
+    extendedProperties: {
+      private: {
+        [reminderTaskIdKey]: task.id
+      }
+    }
+  };
 }
 
 async function persistManagedTaskMetadata(
@@ -300,8 +393,12 @@ async function persistManagedTaskMetadataSafely(
 }
 
 function buildCalendarEventRequestBody(
-  task: Pick<TaskRecord, "id" | "title" | "notes" | "dueDate" | "endDate" | "memberEmails">
+  task: Pick<
+    TaskRecord,
+    "id" | "title" | "notes" | "dueDate" | "endDate" | "memberEmails" | "reminderHoursBefore"
+  >
 ) {
+  const reminders = buildCalendarReminders(task);
   const hasDateOnlyStart = Boolean(task.dueDate && !task.dueDate.includes("T"));
   const hasDateOnlyEnd = Boolean(task.endDate && !task.endDate.includes("T"));
 
@@ -316,6 +413,7 @@ function buildCalendarEventRequestBody(
       attendees: task.memberEmails.map((email) => ({ email })),
       start: { date: start },
       end: { date: end.toISOString().slice(0, 10) },
+      reminders,
       extendedProperties: {
         private: {
           [calendarTaskIdKey]: task.id
@@ -337,6 +435,7 @@ function buildCalendarEventRequestBody(
     attendees: task.memberEmails.map((email) => ({ email })),
     start: { dateTime: startDate.toISOString() },
     end: { dateTime: endDate.toISOString() },
+    reminders,
     extendedProperties: {
       private: {
         [calendarTaskIdKey]: task.id
@@ -369,6 +468,68 @@ async function getCalendarEventById(
 
     throw error;
   }
+}
+
+async function deleteCalendarEventIfPresent(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  eventId: string | null
+) {
+  if (!eventId) {
+    return;
+  }
+
+  try {
+    await calendar.events.delete({
+      calendarId,
+      eventId
+    });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === 404) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function syncDailyReminderEvent(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  task: TaskRecord
+) {
+  const reminderBody = buildDailyReminderEventRequestBody(task);
+
+  if (!reminderBody) {
+    if (task.reminderEventId) {
+      await deleteCalendarEventIfPresent(calendar, calendarId, task.reminderEventId);
+    }
+
+    return null;
+  }
+
+  if (task.reminderEventId) {
+    const existingReminder = await getCalendarEventById(calendar, calendarId, task.reminderEventId);
+
+    if (existingReminder?.id) {
+      const response = await calendar.events.update({
+        calendarId,
+        eventId: existingReminder.id,
+        requestBody: reminderBody,
+        sendUpdates: "all"
+      });
+
+      return response.data.id ?? existingReminder.id;
+    }
+  }
+
+  const response = await calendar.events.insert({
+    calendarId,
+    requestBody: reminderBody,
+    sendUpdates: "all"
+  });
+
+  return response.data.id ?? null;
 }
 
 async function findMatchingCalendarEventId(
@@ -512,6 +673,8 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           title: item.title ?? "Untitled task",
           dueDate: metadata.dueDate ?? item.due ?? null,
           endDate: metadata.endDate ?? metadata.dueDate ?? item.due ?? null,
+          reminderHoursBefore: metadata.reminderHoursBefore ?? null,
+          dailyReminderHour: metadata.dailyReminderHour ?? null,
           notes,
           projectName: metadata.projectName ?? "",
           categoryName: metadata.categoryName ?? "",
@@ -529,6 +692,7 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
             : metadata.tasksSyncMessage ?? "Google Tasks sync needs attention.",
           lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
           calendarEventId,
+          reminderEventId: metadata.reminderEventId ?? null,
           googleTaskId: item.id ?? null
         };
 
@@ -572,6 +736,8 @@ export async function createGoogleBackedTask(
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    reminderHoursBefore: input.reminderHoursBefore ?? null,
+    dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -585,6 +751,7 @@ export async function createGoogleBackedTask(
     tasksSyncMessage: "Google Tasks sync has not started yet.",
     lastSyncAttemptedAt: timestamp,
     calendarEventId: null,
+    reminderEventId: null,
     googleTaskId: null
   };
 
@@ -612,6 +779,11 @@ export async function createGoogleBackedTask(
     });
 
     record.calendarEventId = calendarResponse.data.id ?? null;
+    record.reminderEventId = await syncDailyReminderEvent(
+      calendar,
+      config.googleCalendarId || "primary",
+      record
+    );
     record.calendarSync = "synced";
     record.calendarSyncMessage = "Calendar synced successfully.";
   } catch (error) {
@@ -662,6 +834,11 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
         });
 
     nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
+    nextTask.reminderEventId = await syncDailyReminderEvent(
+      calendar,
+      config.googleCalendarId || "primary",
+      nextTask
+    );
     nextTask.calendarSync = "synced";
     nextTask.calendarSyncMessage = "Calendar synced successfully.";
   } catch (error) {
@@ -765,12 +942,14 @@ export async function syncTaskToGoogle(
       notes: input.notes ?? "",
       dueDate: input.dueDate || null,
       endDate: input.endDate || input.dueDate || null,
-      memberEmails: input.memberEmails ?? []
+      memberEmails: input.memberEmails ?? [],
+      reminderHoursBefore: input.reminderHoursBefore ?? null
     });
+    const calendarId = config.googleCalendarId || "primary";
 
     const [calendarResponse, tasksResponse] = await Promise.all([
       calendar.events.insert({
-        calendarId: config.googleCalendarId || "primary",
+        calendarId,
         requestBody: eventBody,
         sendUpdates: "all"
       }),
@@ -783,11 +962,28 @@ export async function syncTaskToGoogle(
         }
       })
     ]);
+    const reminderResponse = await buildDailyReminderEventRequestBody({
+      id: randomUUID(),
+      title: input.title,
+      notes: input.notes ?? "",
+      dueDate: input.dueDate || null,
+      endDate: input.endDate || input.dueDate || null,
+      memberEmails: input.memberEmails ?? [],
+      dailyReminderHour: input.dailyReminderHour ?? null
+    });
+    const insertedReminder = reminderResponse
+      ? await calendar.events.insert({
+          calendarId,
+          requestBody: reminderResponse,
+          sendUpdates: "all"
+        })
+      : null;
 
     return {
       calendar: {
         status: "synced",
         externalId: calendarResponse.data.id ?? null,
+        reminderExternalId: insertedReminder?.data.id ?? null,
         message: "Calendar synced successfully."
       },
       tasks: {
@@ -846,19 +1042,21 @@ export async function syncStoredTaskToGoogle(
     const tasks = google.tasks({ version: "v1", auth });
     const eventBody = buildCalendarEventRequestBody(task);
     const taskStatus = task.completed ? "completed" : "needsAction";
+    const calendarId = config.googleCalendarId || "primary";
 
     const calendarResponse = task.calendarEventId
       ? await calendar.events.update({
-          calendarId: config.googleCalendarId || "primary",
+          calendarId,
           eventId: task.calendarEventId,
           requestBody: eventBody,
           sendUpdates: "all"
         })
       : await calendar.events.insert({
-          calendarId: config.googleCalendarId || "primary",
+          calendarId,
           requestBody: eventBody,
           sendUpdates: "all"
         });
+    const reminderEventId = await syncDailyReminderEvent(calendar, calendarId, task);
 
     const tasksResponse = task.googleTaskId
       ? await tasks.tasks.update({
@@ -885,6 +1083,7 @@ export async function syncStoredTaskToGoogle(
       calendar: {
         status: "synced",
         externalId: calendarResponse.data.id ?? task.calendarEventId ?? null,
+        reminderExternalId: reminderEventId,
         message: "Calendar synced successfully."
       },
       tasks: {
@@ -929,12 +1128,8 @@ export async function deleteTaskFromGoogle(task: TaskRecord, session: GoogleToke
     (await findMatchingCalendarEventId(calendar, calendarId, task).catch(() => null));
 
   await Promise.allSettled([
-    calendarEventId
-      ? calendar.events.delete({
-          calendarId,
-          eventId: calendarEventId
-        })
-      : Promise.resolve(),
+    deleteCalendarEventIfPresent(calendar, calendarId, calendarEventId),
+    deleteCalendarEventIfPresent(calendar, calendarId, task.reminderEventId),
     task.googleTaskId
       ? tasks.tasks.delete({
           tasklist: config.googleTasksListId || "@default",

@@ -42,9 +42,12 @@ export async function listTasks(session: GoogleTokens | null = null) {
   const normalized = tasks.map((task) => ({
     ...task,
     endDate: task.endDate ?? task.dueDate ?? null,
+    reminderHoursBefore: task.reminderHoursBefore ?? null,
+    dailyReminderHour: task.dailyReminderHour ?? null,
     projectName: task.projectName ?? "",
     categoryName: task.categoryName ?? "",
-    memberEmails: task.memberEmails ?? []
+    memberEmails: task.memberEmails ?? [],
+    reminderEventId: task.reminderEventId ?? null
   }));
   return normalized.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
@@ -67,6 +70,8 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    reminderHoursBefore: input.reminderHoursBefore ?? null,
+    dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -80,6 +85,7 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     tasksSyncMessage: syncResult.tasks.message,
     lastSyncAttemptedAt: timestamp,
     calendarEventId: syncResult.calendar.externalId,
+    reminderEventId: syncResult.calendar.reminderExternalId ?? null,
     googleTaskId: syncResult.tasks.externalId
   };
 
@@ -114,6 +120,8 @@ export async function updateTaskAndSync(
         title: input.title,
         dueDate: input.dueDate || null,
         endDate: input.endDate || input.dueDate || null,
+        reminderHoursBefore: input.reminderHoursBefore ?? null,
+        dailyReminderHour: input.dailyReminderHour ?? null,
         notes: input.notes ?? "",
         projectName: input.projectName?.trim() ?? "",
         categoryName: input.categoryName?.trim() ?? "",
@@ -138,6 +146,8 @@ export async function updateTaskAndSync(
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    reminderHoursBefore: input.reminderHoursBefore ?? null,
+    dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
     projectName: input.projectName?.trim() ?? "",
     categoryName: input.categoryName?.trim() ?? "",
@@ -154,6 +164,7 @@ export async function updateTaskAndSync(
   nextTask.tasksSyncMessage = syncResult.tasks.message;
   nextTask.lastSyncAttemptedAt = new Date().toISOString();
   nextTask.calendarEventId = syncResult.calendar.externalId;
+  nextTask.reminderEventId = syncResult.calendar.reminderExternalId ?? nextTask.reminderEventId ?? null;
   nextTask.googleTaskId = syncResult.tasks.externalId;
 
   tasks[index] = nextTask;
@@ -194,6 +205,7 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
     tasksSyncMessage: syncResult.tasks.message,
     lastSyncAttemptedAt: new Date().toISOString(),
     calendarEventId: syncResult.calendar.externalId,
+    reminderEventId: syncResult.calendar.reminderExternalId ?? tasks[index].reminderEventId ?? null,
     googleTaskId: syncResult.tasks.externalId
   };
 
@@ -244,6 +256,8 @@ export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
       tasksSyncMessage: syncResult.tasks.message,
       lastSyncAttemptedAt: new Date().toISOString(),
       calendarEventId: syncResult.calendar.externalId,
+      reminderEventId:
+        syncResult.calendar.reminderExternalId ?? updatedTasks[index].reminderEventId ?? null,
       googleTaskId: syncResult.tasks.externalId
     };
 
@@ -311,6 +325,8 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
           title: task.title,
           dueDate: task.dueDate ?? "",
           endDate: task.endDate ?? task.dueDate ?? "",
+          reminderHoursBefore: task.reminderHoursBefore ?? undefined,
+          dailyReminderHour: task.dailyReminderHour ?? undefined,
           notes: task.notes,
           projectName: task.projectName ?? "",
           categoryName: task.categoryName ?? "",

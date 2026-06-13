@@ -6,6 +6,8 @@ export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Task title is required.").max(120),
   dueDate: z.string().optional(),
   endDate: z.string().optional(),
+  reminderHoursBefore: z.number().int().min(0).max(672).optional(),
+  dailyReminderHour: z.number().int().min(0).max(23).optional(),
   notes: z.string().max(1000).optional(),
   projectName: z.string().trim().max(80).optional(),
   categoryName: z.string().trim().max(80).optional(),
@@ -50,6 +52,8 @@ export type TaskRecord = {
   title: string;
   dueDate: string | null;
   endDate: string | null;
+  reminderHoursBefore: number | null;
+  dailyReminderHour: number | null;
   notes: string;
   projectName: string;
   categoryName: string;
@@ -63,5 +67,6 @@ export type TaskRecord = {
   tasksSyncMessage: string;
   lastSyncAttemptedAt: string | null;
   calendarEventId: string | null;
+  reminderEventId: string | null;
   googleTaskId: string | null;
 };

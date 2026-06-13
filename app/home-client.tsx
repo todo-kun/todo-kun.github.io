@@ -88,11 +88,33 @@ const emptyForm = {
   title: "",
   dueDate: "",
   endDate: "",
+  reminderHoursBefore: "",
+  dailyReminderHour: "",
   notes: "",
   projectName: "",
   categoryName: "",
   memberEmails: [] as string[]
 };
+
+const reminderHourOptions = [
+  { value: "", label: "なし" },
+  { value: "1", label: "1時間前" },
+  { value: "3", label: "3時間前" },
+  { value: "6", label: "6時間前" },
+  { value: "12", label: "12時間前" },
+  { value: "24", label: "24時間前" },
+  { value: "48", label: "2日前" },
+  { value: "72", label: "3日前" }
+];
+
+const dailyReminderOptions = [
+  { value: "", label: "なし" },
+  { value: "8", label: "08:00" },
+  { value: "12", label: "12:00" },
+  { value: "18", label: "18:00" },
+  { value: "20", label: "20:00" },
+  { value: "21", label: "21:00" }
+];
 
 const emptyTaxonomy: TaskTaxonomy = {
   projects: [],
@@ -309,6 +331,8 @@ export function HomeClient({
             title: form.title,
             dueDate: toApiDateValue(form.dueDate),
             endDate: toApiDateValue(form.endDate),
+            reminderHoursBefore: form.reminderHoursBefore ? Number(form.reminderHoursBefore) : undefined,
+            dailyReminderHour: form.dailyReminderHour ? Number(form.dailyReminderHour) : undefined,
             notes: form.notes,
             projectName: form.projectName.trim(),
             categoryName: form.categoryName.trim(),
@@ -571,6 +595,14 @@ export function HomeClient({
       title: task.title,
       dueDate: toDateInputValue(task.dueDate),
       endDate: toDateInputValue(task.endDate),
+      reminderHoursBefore:
+        task.reminderHoursBefore === null || task.reminderHoursBefore === undefined
+          ? ""
+          : String(task.reminderHoursBefore),
+      dailyReminderHour:
+        task.dailyReminderHour === null || task.dailyReminderHour === undefined
+          ? ""
+          : String(task.dailyReminderHour),
       notes: task.notes,
       projectName: task.projectName ?? "",
       categoryName: task.categoryName ?? "",
@@ -631,6 +663,8 @@ export function HomeClient({
                   title: targetTask.title,
                   dueDate: targetTask.dueDate ?? "",
                   endDate: targetTask.endDate ?? targetTask.dueDate ?? "",
+                  reminderHoursBefore: targetTask.reminderHoursBefore ?? undefined,
+                  dailyReminderHour: targetTask.dailyReminderHour ?? undefined,
                   notes: targetTask.notes,
                   projectName: targetTask.projectName ?? "",
                   categoryName: targetTask.categoryName ?? "",
@@ -933,6 +967,22 @@ export function HomeClient({
           </label>
 
           <label>
+            終了日の何時間前に通知
+            <select
+              value={form.reminderHoursBefore}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, reminderHoursBefore: event.target.value }))
+              }
+            >
+              {reminderHourOptions.map((option) => (
+                <option key={option.value || "none"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
             メモ
             <textarea
               value={form.notes}
@@ -950,6 +1000,22 @@ export function HomeClient({
               min={form.dueDate || undefined}
               onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))}
             />
+          </label>
+
+          <label>
+            毎日リマインドする時刻
+            <select
+              value={form.dailyReminderHour}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, dailyReminderHour: event.target.value }))
+              }
+            >
+              {dailyReminderOptions.map((option) => (
+                <option key={option.value || "none"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <div className="member-picker">
@@ -1369,6 +1435,9 @@ export function HomeClient({
                   <div className="task-chip-row">
                     {task.projectName ? <span className="task-chip">案件: {task.projectName}</span> : null}
                     {task.categoryName ? <span className="task-chip">種類: {task.categoryName}</span> : null}
+                    {formatReminderSummary(task) ? (
+                      <span className="task-chip">通知: {formatReminderSummary(task)}</span>
+                    ) : null}
                     {task.memberEmails.map((email) => (
                       <span className="task-chip" key={email}>
                         参加: {email}
@@ -1475,6 +1544,20 @@ function formatTaskPeriod(task: Pick<TaskRecord, "dueDate" | "endDate">) {
   }
 
   return `${formatDate(task.dueDate)}〜${formatDate(task.endDate)}`;
+}
+
+function formatReminderSummary(task: Pick<TaskRecord, "reminderHoursBefore" | "dailyReminderHour">) {
+  const labels: string[] = [];
+
+  if (task.reminderHoursBefore !== null && task.reminderHoursBefore !== undefined) {
+    labels.push(`終了${task.reminderHoursBefore}時間前`);
+  }
+
+  if (task.dailyReminderHour !== null && task.dailyReminderHour !== undefined) {
+    labels.push(`毎日${String(task.dailyReminderHour).padStart(2, "0")}:00`);
+  }
+
+  return labels.join(" / ");
 }
 
 function SetupItem({ label, ready }: { label: string; ready: boolean }) {

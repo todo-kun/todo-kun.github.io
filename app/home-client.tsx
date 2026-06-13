@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { ChangeEvent, FormEvent, useEffect, useState, useTransition } from "react";
-import type { TaskRecord, TaskTaxonomy, TaxonomyKind } from "@/types/task";
+import type { RegisteredMember, TaskRecord, TaskTaxonomy, TaxonomyKind } from "@/types/task";
 
 type GoogleStatus = {
   configured: boolean;
@@ -18,6 +18,12 @@ type TasksResponse = {
 type TaxonomyResponse = {
   ok: boolean;
   taxonomy: TaskTaxonomy;
+  error?: string;
+};
+
+type MembersResponse = {
+  ok: boolean;
+  members: RegisteredMember[];
   error?: string;
 };
 
@@ -62,7 +68,7 @@ type BulkSyncResponse = {
 
 type BackupResponse = {
   ok: boolean;
-  backup: {
+  backup?: {
     version: 1;
     exportedAt: string;
     tasks: TaskRecord[];
@@ -84,7 +90,7 @@ const emptyForm = {
   notes: "",
   projectName: "",
   categoryName: "",
-  memberEmailsText: ""
+  memberEmails: [] as string[]
 };
 
 const emptyTaxonomy: TaskTaxonomy = {
@@ -158,15 +164,21 @@ function toDateTimeLocalValue(value: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function parseMemberEmails(value: string) {
-  return [...new Set(value
-    .split(/[\n,]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean))];
+function getProjectMembers(projectName: string, members: RegisteredMember[]) {
+  if (!projectName) {
+    return members;
+  }
+
+  return members.filter((member) => member.projectNames.includes(projectName));
 }
 
-function toMemberEmailsText(memberEmails: string[]) {
-  return memberEmails.join(", ");
+function syncSelectedMembers(projectName: string, members: RegisteredMember[], selectedEmails: string[]) {
+  if (!projectName) {
+    return selectedEmails;
+  }
+
+  const allowedEmails = new Set(getProjectMembers(projectName, members).map((member) => member.email));
+  return selectedEmails.filter((email) => allowedEmails.has(email));
 }
 
 export function HomeClient({
@@ -180,8 +192,12 @@ export function HomeClient({
   const [message, setMessage] = useState(initialMessage);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [taxonomy, setTaxonomy] = useState<TaskTaxonomy>(emptyTaxonomy);
+  const [members, setMembers] = useState<RegisteredMember[]>([]);
   const [newProjectName, setNewProjectName] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberProjects, setNewMemberProjects] = useState<string[]>([]);
   const [projectFilter, setProjectFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
@@ -204,7 +220,7 @@ export function HomeClient({
   const [isSavingSettings, startSettingsTransition] = useTransition();
   const [isExporting, startExportTransition] = useTransition();
   const [isImporting, startImportTransition] = useTransition();
-  const [isTaxonomySaving, startTaxonomyTransition] = useTransition();
+  const [isManagingDirectory, startDirectoryTransition] = useTransition();
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -213,6 +229,7 @@ export function HomeClient({
     void refreshSettings();
     void refreshSettingsHealth();
     void refreshTaxonomy();
+    void refreshMembers();
 
     if (shouldCleanQuery) {
       window.history.replaceState({}, "", "/");
@@ -237,6 +254,12 @@ export function HomeClient({
     const response = await fetch("/api/taxonomy", { cache: "no-store" });
     const result = await readApiJson<TaxonomyResponse>(response);
     setTaxonomy(result.taxonomy);
+  }
+
+  async function refreshMembers() {
+    const response = await fetch("/api/members", { cache: "no-store" });
+    const result = await readApiJson<MembersResponse>(response);
+    setMembers(result.members);
   }
 
   async function refreshSettings() {
@@ -277,11 +300,12 @@ export function HomeClient({
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            ...form,
+            title: form.title,
+            dueDate: toApiDateTime(form.dueDate),
+            notes: form.notes,
             projectName: form.projectName.trim(),
             categoryName: form.categoryName.trim(),
-            memberEmails: parseMemberEmails(form.memberEmailsText),
-            dueDate: toApiDateTime(form.dueDate),
+            memberEmails: form.memberEmails,
             completed: editingTaskId
               ? tasks.find((task) => task.id === editingTaskId)?.completed ?? false
               : undefined
@@ -304,7 +328,6 @@ export function HomeClient({
           setMessage("タスクを登録しました。");
         }
 
-        await refreshTaxonomy();
         setForm(emptyForm);
         setEditingTaskId(null);
       } catch (error) {
@@ -368,7 +391,7 @@ export function HomeClient({
       return;
     }
 
-    startTaxonomyTransition(async () => {
+    startDirectoryTransition(async () => {
       try {
         const response = await fetch("/api/taxonomy", {
           method: "POST",
@@ -396,7 +419,47 @@ export function HomeClient({
           setMessage("カテゴリーを追加しました。");
         }
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "追加できませんでした。");
+        setMessage(error instanceof Error ? error.message : "保存できませんでした。");
+      }
+    });
+  }
+
+  async function handleMemberCreate() {
+    const name = newMemberName.trim();
+    const email = newMemberEmail.trim();
+
+    if (!name || !email) {
+      setMessage("メンバー名とGoogleアカウントのメールアドレスを入力してください。");
+      return;
+    }
+
+    startDirectoryTransition(async () => {
+      try {
+        const response = await fetch("/api/members", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name,
+            email,
+            projectNames: newMemberProjects
+          })
+        });
+
+        const result = await readApiJson<MembersResponse>(response);
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "メンバーを登録できませんでした。");
+        }
+
+        setMembers(result.members);
+        setNewMemberName("");
+        setNewMemberEmail("");
+        setNewMemberProjects([]);
+        setMessage("参加メンバーを登録しました。");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "メンバーを登録できませんでした。");
       }
     });
   }
@@ -409,7 +472,7 @@ export function HomeClient({
       notes: task.notes,
       projectName: task.projectName ?? "",
       categoryName: task.categoryName ?? "",
-      memberEmailsText: toMemberEmailsText(task.memberEmails ?? [])
+      memberEmails: task.memberEmails ?? []
     });
     setMessage(`「${task.title}」を編集中です。`);
   }
@@ -581,6 +644,7 @@ export function HomeClient({
 
         setTasks(result.tasks);
         await refreshTaxonomy();
+        await refreshMembers();
         setMessage("バックアップを読み込みました。");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "バックアップの読み込みに失敗しました。");
@@ -588,6 +652,31 @@ export function HomeClient({
         event.target.value = "";
       }
     });
+  }
+
+  function handleProjectSelect(projectName: string) {
+    setForm((current) => ({
+      ...current,
+      projectName,
+      memberEmails: syncSelectedMembers(projectName, members, current.memberEmails)
+    }));
+  }
+
+  function toggleFormMember(email: string) {
+    setForm((current) => ({
+      ...current,
+      memberEmails: current.memberEmails.includes(email)
+        ? current.memberEmails.filter((item) => item !== email)
+        : [...current.memberEmails, email]
+    }));
+  }
+
+  function toggleNewMemberProject(projectName: string) {
+    setNewMemberProjects((current) =>
+      current.includes(projectName)
+        ? current.filter((item) => item !== projectName)
+        : [...current, projectName]
+    );
   }
 
   const visibleTasks = tasks.filter((task) => {
@@ -616,6 +705,8 @@ export function HomeClient({
     projects: taxonomy.projects.length,
     categories: taxonomy.categories.length
   };
+
+  const availableMembers = getProjectMembers(form.projectName, members);
 
   return (
     <main className="page-shell">
@@ -646,7 +737,7 @@ export function HomeClient({
             />
             <div className="mascot-bubble">
               <strong>今日のひとこと</strong>
-              <p>案件ごとでも作業の種類ごとでも、見失わないようにトドくんが整理します。</p>
+              <p>案件ごとでも作業の種類ごとでも、参加メンバーごとでも、トドくんが見やすく整理します。</p>
             </div>
           </div>
           <div className="hero-status">
@@ -701,12 +792,7 @@ export function HomeClient({
           <div className="field-grid">
             <label>
               プロジェクトフォルダ
-              <select
-                value={form.projectName}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, projectName: event.target.value }))
-                }
-              >
+              <select value={form.projectName} onChange={(event) => handleProjectSelect(event.target.value)}>
                 <option value="">未設定</option>
                 {taxonomy.projects.map((project) => (
                   <option key={project} value={project}>
@@ -749,21 +835,43 @@ export function HomeClient({
               value={form.notes}
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
               placeholder="補足や次のアクションを書けます"
-              rows={5}
+              rows={4}
             />
           </label>
 
-          <label>
-            参加メンバー
-            <textarea
-              value={form.memberEmailsText}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, memberEmailsText: event.target.value }))
-              }
-              placeholder="Googleアカウントのメールアドレスをカンマ区切りか改行で追加"
-              rows={3}
-            />
-          </label>
+          <div className="member-picker">
+            <div className="member-picker-header">
+              <strong>参加メンバー</strong>
+              <span>
+                {form.projectName
+                  ? `選択中のプロジェクト: ${form.projectName}`
+                  : "プロジェクト未選択のため全メンバーを表示中"}
+              </span>
+            </div>
+            {availableMembers.length === 0 ? (
+              <p className="member-picker-empty">
+                {form.projectName
+                  ? "このプロジェクトに登録されたメンバーがまだいません。下のメンバー管理から追加できます。"
+                  : "登録済みメンバーがまだいません。下のメンバー管理から追加できます。"}
+              </p>
+            ) : (
+              <div className="member-checklist">
+                {availableMembers.map((member) => (
+                  <label className="member-option" key={member.email}>
+                    <input
+                      checked={form.memberEmails.includes(member.email)}
+                      onChange={() => toggleFormMember(member.email)}
+                      type="checkbox"
+                    />
+                    <div>
+                      <strong>{member.name}</strong>
+                      <span>{member.email}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="action-row">
             <button type="submit" disabled={isSaving}>
@@ -891,11 +999,7 @@ export function HomeClient({
               onChange={(event) => setNewProjectName(event.target.value)}
               placeholder="例: 補助金申請 / 既存顧客対応"
             />
-            <button
-              disabled={isTaxonomySaving}
-              onClick={() => void handleTaxonomyCreate("project")}
-              type="button"
-            >
+            <button disabled={isManagingDirectory} onClick={() => void handleTaxonomyCreate("project")} type="button">
               追加
             </button>
           </div>
@@ -904,12 +1008,7 @@ export function HomeClient({
               <span className="empty-chip">まだプロジェクトはありません</span>
             ) : (
               taxonomy.projects.map((project) => (
-                <button
-                  className="chip-button"
-                  key={project}
-                  onClick={() => setForm((current) => ({ ...current, projectName: project }))}
-                  type="button"
-                >
+                <button className="chip-button" key={project} onClick={() => handleProjectSelect(project)} type="button">
                   {project}
                 </button>
               ))
@@ -929,7 +1028,7 @@ export function HomeClient({
               placeholder="例: 申請入力 / 電話確認 / 請求処理"
             />
             <button
-              disabled={isTaxonomySaving}
+              disabled={isManagingDirectory}
               onClick={() => void handleTaxonomyCreate("category")}
               type="button"
             >
@@ -947,6 +1046,74 @@ export function HomeClient({
                 {category}
               </button>
             ))}
+          </div>
+        </article>
+
+        <article className="manager-card manager-card-wide">
+          <div className="section-heading">
+            <h2>参加メンバー名簿</h2>
+            <p>Google アカウントのメールアドレスを先に登録しておくと、タスク登録時にチェックボックスで選べます。</p>
+          </div>
+          <div className="member-register-grid">
+            <input
+              value={newMemberName}
+              onChange={(event) => setNewMemberName(event.target.value)}
+              placeholder="メンバー名"
+            />
+            <input
+              value={newMemberEmail}
+              onChange={(event) => setNewMemberEmail(event.target.value)}
+              placeholder="Googleアカウントのメールアドレス"
+            />
+          </div>
+          <div className="project-picker">
+            <span>所属プロジェクト</span>
+            <div className="project-picker-list">
+              {taxonomy.projects.length === 0 ? (
+                <span className="empty-chip">先にプロジェクトを追加してください</span>
+              ) : (
+                taxonomy.projects.map((project) => (
+                  <label className="project-option" key={project}>
+                    <input
+                      checked={newMemberProjects.includes(project)}
+                      onChange={() => toggleNewMemberProject(project)}
+                      type="checkbox"
+                    />
+                    <span>{project}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="action-row">
+            <button disabled={isManagingDirectory} onClick={() => void handleMemberCreate()} type="button">
+              メンバーを登録
+            </button>
+          </div>
+          <div className="member-directory">
+            {members.length === 0 ? (
+              <p className="member-picker-empty">まだメンバーは登録されていません。</p>
+            ) : (
+              members.map((member) => (
+                <article className="member-directory-item" key={member.email}>
+                  <div>
+                    <strong>{member.name}</strong>
+                    <span>{member.email}</span>
+                  </div>
+                  <div className="task-chip-row">
+                    {member.projectNames.length === 0 ? (
+                      <span className="empty-chip">未分類</span>
+                    ) : (
+                      member.projectNames.map((project) => (
+                        <span className="task-chip" key={`${member.email}-${project}`}>
+                          {project}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </article>
+              ))
+            )}
           </div>
         </article>
       </section>
@@ -999,28 +1166,13 @@ export function HomeClient({
           </div>
           <div className="toolbar-row">
             <div className="filter-row" role="tablist" aria-label="タスクの状態">
-              <button
-                className="ghost-button"
-                data-selected={filter === "all"}
-                onClick={() => setFilter("all")}
-                type="button"
-              >
+              <button className="ghost-button" data-selected={filter === "all"} onClick={() => setFilter("all")} type="button">
                 すべて
               </button>
-              <button
-                className="ghost-button"
-                data-selected={filter === "open"}
-                onClick={() => setFilter("open")}
-                type="button"
-              >
+              <button className="ghost-button" data-selected={filter === "open"} onClick={() => setFilter("open")} type="button">
                 進行中
               </button>
-              <button
-                className="ghost-button"
-                data-selected={filter === "done"}
-                onClick={() => setFilter("done")}
-                type="button"
-              >
+              <button className="ghost-button" data-selected={filter === "done"} onClick={() => setFilter("done")} type="button">
                 完了
               </button>
             </div>
@@ -1040,20 +1192,10 @@ export function HomeClient({
                 </option>
               ))}
             </select>
-            <button
-              className="ghost-button"
-              disabled={isBulkSyncing}
-              onClick={() => void handleBulkSync()}
-              type="button"
-            >
+            <button className="ghost-button" disabled={isBulkSyncing} onClick={() => void handleBulkSync()} type="button">
               {isBulkSyncing ? "再連携中..." : "未連携をまとめて再実行"}
             </button>
-            <button
-              className="ghost-button"
-              disabled={isExporting}
-              onClick={() => void handleExportBackup()}
-              type="button"
-            >
+            <button className="ghost-button" disabled={isExporting} onClick={() => void handleExportBackup()} type="button">
               {isExporting ? "書き出し中..." : "バックアップを書き出す"}
             </button>
             <label className="ghost-button file-button">
@@ -1066,12 +1208,7 @@ export function HomeClient({
                 type="file"
               />
             </label>
-            <button
-              className="ghost-button"
-              onClick={() => void refreshTasks()}
-              disabled={isLoading}
-              type="button"
-            >
+            <button className="ghost-button" onClick={() => void refreshTasks()} disabled={isLoading} type="button">
               {isLoading ? "更新中..." : "最新に更新"}
             </button>
           </div>
@@ -1080,11 +1217,7 @@ export function HomeClient({
         <div className="task-list">
           {visibleTasks.length === 0 ? (
             <div className="empty-state">
-              <p>
-                {tasks.length === 0
-                  ? "まだタスクがありません。最初の1件を登録してみましょう。"
-                  : "この条件に合うタスクはありません。"}
-              </p>
+              <p>{tasks.length === 0 ? "まだタスクがありません。最初の1件を登録してみましょう。" : "この条件に合うタスクはありません。"}</p>
             </div>
           ) : (
             visibleTasks.map((task) => (
@@ -1096,9 +1229,7 @@ export function HomeClient({
                   </div>
                   <div className="task-chip-row">
                     {task.projectName ? <span className="task-chip">案件: {task.projectName}</span> : null}
-                    {task.categoryName ? (
-                      <span className="task-chip">種類: {task.categoryName}</span>
-                    ) : null}
+                    {task.categoryName ? <span className="task-chip">種類: {task.categoryName}</span> : null}
                     {task.memberEmails.map((email) => (
                       <span className="task-chip" key={email}>
                         参加: {email}
@@ -1135,8 +1266,7 @@ export function HomeClient({
                     <strong>To Do:</strong> {task.tasksSyncMessage}
                   </p>
                   <p>
-                    <strong>最終連携:</strong>{" "}
-                    {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行されていません"}
+                    <strong>最終連携:</strong> {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行されていません"}
                   </p>
                 </div>
 

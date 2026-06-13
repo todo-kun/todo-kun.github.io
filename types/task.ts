@@ -22,6 +22,12 @@ export const taxonomyEntrySchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(80)
 });
 
+export const memberDirectoryEntrySchema = z.object({
+  name: z.string().trim().min(1, "Name is required.").max(80),
+  email: memberEmailSchema,
+  projectNames: z.array(z.string().trim().min(1).max(80)).max(20).optional()
+});
+
 export type SyncState = "synced" | "not_connected" | "missing_config" | "failed";
 
 export type TaskInput = z.infer<typeof taskInputSchema>;
@@ -30,6 +36,12 @@ export type TaxonomyKind = z.infer<typeof taxonomyKindSchema>;
 export type TaskTaxonomy = {
   projects: string[];
   categories: string[];
+};
+
+export type RegisteredMember = {
+  name: string;
+  email: string;
+  projectNames: string[];
 };
 
 export type TaskRecord = {

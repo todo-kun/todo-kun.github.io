@@ -383,10 +383,84 @@ button {
   gap: 16px;
 }
 
+.manager-card-wide {
+  grid-column: 1 / -1;
+}
+
 .inline-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
+}
+
+.member-register-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.member-picker,
+.project-picker,
+.member-directory {
+  display: grid;
+  gap: 12px;
+}
+
+.member-picker {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(47, 128, 209, 0.16);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.member-picker-header {
+  display: grid;
+  gap: 4px;
+}
+
+.member-picker-header span,
+.member-picker-empty,
+.member-directory-item span,
+.project-picker > span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.member-checklist,
+.project-picker-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.member-option,
+.project-option,
+.member-directory-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.member-option input,
+.project-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.member-option div,
+.member-directory-item div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.member-directory-item {
+  justify-content: space-between;
+  align-items: start;
 }
 
 .chip-list,
@@ -580,7 +654,10 @@ button {
   }
 
   .field-grid,
-  .inline-form {
+  .inline-form,
+  .member-register-grid,
+  .member-checklist,
+  .project-picker-list {
     grid-template-columns: 1fr;
   }
 

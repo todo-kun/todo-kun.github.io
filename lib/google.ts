@@ -9,6 +9,7 @@ import type { SyncState, TaskInput, TaskRecord } from "@/types/task";
 
 export const googleScopes = [
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.appdata",
   "https://www.googleapis.com/auth/tasks",
   "openid",
   "email",
@@ -155,7 +156,7 @@ export async function getGoogleSession() {
   }
 }
 
-async function buildAuthorizedClient(tokens: GoogleTokens) {
+export async function buildAuthorizedClient(tokens: GoogleTokens) {
   const oauth2Client = await createOAuthClient();
   oauth2Client.setCredentials({
     access_token: tokens.access_token ?? undefined,

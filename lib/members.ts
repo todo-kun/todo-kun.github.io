@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
+import { readGoogleDriveAppState, writeGoogleDriveAppState } from "@/lib/google-drive-state";
 import type { RegisteredMember } from "@/types/task";
 
 const membersFileName = "members.json";
@@ -55,15 +56,22 @@ async function writeCookieMembers(members: RegisteredMember[]) {
 }
 
 export async function listRegisteredMembers() {
-  const members = shouldUseCookieMembers()
-    ? await readCookieMembers()
-    : await readJsonFile<RegisteredMember[] | null>(membersFileName, null);
+  const sharedState = await readGoogleDriveAppState();
+  const members =
+    sharedState?.members ??
+    (shouldUseCookieMembers()
+      ? await readCookieMembers()
+      : await readJsonFile<RegisteredMember[] | null>(membersFileName, null));
 
   return normalizeMembers(members);
 }
 
 export async function saveRegisteredMembers(members: RegisteredMember[]) {
   const normalized = normalizeMembers(members);
+
+  await writeGoogleDriveAppState({
+    members: normalized
+  }).catch(() => null);
 
   if (shouldUseCookieMembers()) {
     await writeCookieMembers(normalized);
@@ -96,4 +104,38 @@ export async function upsertRegisteredMember(member: RegisteredMember) {
         : item
     )
   );
+}
+
+export async function updateRegisteredMember(email: string, member: Omit<RegisteredMember, "email">) {
+  const current = await listRegisteredMembers();
+  const normalizedEmail = email.trim().toLowerCase();
+  const existing = current.find((item) => item.email === normalizedEmail);
+
+  if (!existing) {
+    throw new Error("Member could not be found.");
+  }
+
+  return saveRegisteredMembers(
+    current.map((item) =>
+      item.email === normalizedEmail
+        ? normalizeMember({
+            name: member.name,
+            email: normalizedEmail,
+            projectNames: member.projectNames ?? []
+          })
+        : item
+    )
+  );
+}
+
+export async function deleteRegisteredMember(email: string) {
+  const current = await listRegisteredMembers();
+  const normalizedEmail = email.trim().toLowerCase();
+  const nextMembers = current.filter((item) => item.email !== normalizedEmail);
+
+  if (nextMembers.length === current.length) {
+    throw new Error("Member could not be found.");
+  }
+
+  return saveRegisteredMembers(nextMembers);
 }

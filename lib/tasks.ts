@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
+import { writeGoogleDriveTaskSnapshot } from "@/lib/google-drive-state";
 import {
   createGoogleBackedTask,
   deleteTaskFromGoogle,
@@ -9,8 +10,9 @@ import {
   syncTaskToGoogle,
   type GoogleTokens
 } from "@/lib/google";
+import { listRegisteredMembers, saveRegisteredMembers } from "@/lib/members";
 import { ensureTaskTaxonomy, listTaxonomy, saveTaxonomy } from "@/lib/taxonomy";
-import type { TaskInput, TaskRecord } from "@/types/task";
+import type { RegisteredMember, TaskInput, TaskRecord } from "@/types/task";
 
 const tasksFileName = "tasks.json";
 
@@ -26,11 +28,14 @@ export type TaskBackup = {
     projects: string[];
     categories: string[];
   };
+  members?: RegisteredMember[];
 };
 
 export async function listTasks(session: GoogleTokens | null = null) {
   if (getTaskStorageProvider() === "google") {
-    return listGoogleBackedTasks(session);
+    const tasks = await listGoogleBackedTasks(session);
+    await writeGoogleDriveTaskSnapshot(tasks, session).catch(() => null);
+    return tasks;
   }
 
   const tasks = await readJsonFile<TaskRecord[]>(tasksFileName, []);
@@ -47,7 +52,9 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
   await ensureTaskTaxonomy(input.projectName, input.categoryName);
 
   if (getTaskStorageProvider() === "google") {
-    return createGoogleBackedTask(input, session);
+    const created = await createGoogleBackedTask(input, session);
+    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    return created;
   }
 
   const syncResult = await syncTaskToGoogle(input, session);
@@ -99,7 +106,7 @@ export async function updateTaskAndSync(
       return null;
     }
 
-    return syncGoogleBackedTask(
+    const updated = await syncGoogleBackedTask(
       {
         ...current,
         title: input.title,
@@ -112,6 +119,8 @@ export async function updateTaskAndSync(
       },
       session
     );
+    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    return updated;
   }
 
   const tasks = await listTasks(session);
@@ -158,7 +167,9 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
       return null;
     }
 
-    return syncGoogleBackedTask(current, session);
+    const refreshed = await syncGoogleBackedTask(current, session);
+    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    return refreshed;
   }
 
   const tasks = await listTasks(session);
@@ -205,6 +216,7 @@ export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
       refreshed.push(await syncGoogleBackedTask(task, session));
     }
 
+    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
     return refreshed;
   }
 
@@ -254,6 +266,8 @@ export async function deleteTask(taskId: string, session: GoogleTokens | null) {
       tasksFileName,
       tasks.filter((item) => item.id !== taskId)
     );
+  } else {
+    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
   }
 
   return true;
@@ -262,18 +276,24 @@ export async function deleteTask(taskId: string, session: GoogleTokens | null) {
 export async function exportTasksBackup(session: GoogleTokens | null = null): Promise<TaskBackup> {
   const tasks = await listTasks(session);
   const taxonomy = await listTaxonomy();
+  const members = await listRegisteredMembers();
 
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
     tasks,
-    taxonomy
+    taxonomy,
+    members
   };
 }
 
 export async function importTasksBackup(backup: TaskBackup, session: GoogleTokens | null = null) {
   if (backup.taxonomy) {
     await saveTaxonomy(backup.taxonomy);
+  }
+
+  if (backup.members) {
+    await saveRegisteredMembers(backup.members);
   }
 
   if (getTaskStorageProvider() === "google") {
@@ -300,7 +320,9 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
       );
     }
 
-    return listTasks(session);
+    const tasks = await listTasks(session);
+    await writeGoogleDriveTaskSnapshot(tasks, session).catch(() => null);
+    return tasks;
   }
 
   const normalized = [...backup.tasks].sort((left, right) =>

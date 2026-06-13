@@ -261,6 +261,46 @@ button {
   font-weight: 600;
 }
 
+.voice-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(47, 128, 209, 0.16);
+  background: rgba(235, 247, 255, 0.72);
+}
+
+.voice-panel-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.voice-panel-copy span,
+.voice-hint,
+.voice-transcript {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.voice-button {
+  min-width: 160px;
+}
+
+.voice-transcript {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(104, 76, 48, 0.1);
+}
+
+.mobile-voice-fab {
+  display: none;
+}
+
 .hero-visual {
   display: grid;
   gap: 16px;
@@ -456,6 +496,16 @@ button {
 .member-directory-item div:first-child {
   display: grid;
   gap: 4px;
+}
+
+.member-directory-body,
+.member-directory-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.member-directory-actions {
+  justify-items: end;
 }
 
 .member-directory-item {
@@ -684,5 +734,32 @@ button {
 
   .task-actions > * {
     flex: 1 1 calc(50% - 10px);
+  }
+
+  .voice-panel {
+    align-items: stretch;
+  }
+
+  .voice-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mobile-voice-fab {
+    position: fixed;
+    right: 16px;
+    bottom: 18px;
+    z-index: 30;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 132px;
+    padding: 16px 18px;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--accent), #56acef);
+    color: white;
+    box-shadow: 0 16px 30px rgba(27, 71, 117, 0.28);
+    font-weight: 800;
   }
 }

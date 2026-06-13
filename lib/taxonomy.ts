@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { readGoogleDriveAppState, writeGoogleDriveAppState } from "@/lib/google-drive-state";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
 import type { TaskTaxonomy, TaxonomyKind } from "@/types/task";
 
@@ -60,14 +61,21 @@ async function writeCookieTaxonomy(taxonomy: TaskTaxonomy) {
 }
 
 export async function listTaxonomy() {
-  const taxonomy = shouldUseCookieTaxonomy()
-    ? await readCookieTaxonomy()
-    : await readJsonFile<Partial<TaskTaxonomy> | null>(taxonomyFileName, null);
+  const sharedState = await readGoogleDriveAppState();
+  const taxonomy =
+    sharedState?.taxonomy ??
+    (shouldUseCookieTaxonomy()
+      ? await readCookieTaxonomy()
+      : await readJsonFile<Partial<TaskTaxonomy> | null>(taxonomyFileName, null));
   return normalizeTaxonomy(taxonomy);
 }
 
 export async function saveTaxonomy(taxonomy: Partial<TaskTaxonomy> | null | undefined) {
   const normalized = normalizeTaxonomy(taxonomy);
+
+  await writeGoogleDriveAppState({
+    taxonomy: normalized
+  }).catch(() => null);
 
   if (shouldUseCookieTaxonomy()) {
     await writeCookieTaxonomy(normalized);

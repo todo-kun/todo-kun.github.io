@@ -224,46 +224,50 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
   const collected: TaskRecord[] = [];
   let pageToken: string | undefined;
 
-  do {
-    const response = await tasksApi.tasks.list({
-      tasklist: config.googleTasksListId || "@default",
-      maxResults: 100,
-      showCompleted: true,
-      showHidden: true,
-      pageToken
-    });
+  try {
+    do {
+      const response = await tasksApi.tasks.list({
+        tasklist: config.googleTasksListId || "@default",
+        maxResults: 100,
+        showCompleted: true,
+        showHidden: true,
+        pageToken
+      });
 
-    for (const item of response.data.items ?? []) {
-      const { notes, metadata } = parseManagedTaskNotes(item.notes);
+      for (const item of response.data.items ?? []) {
+        const { notes, metadata } = parseManagedTaskNotes(item.notes);
 
-      if (!metadata) {
-        continue;
+        if (!metadata) {
+          continue;
+        }
+
+        collected.push({
+          id: metadata.id,
+          title: item.title ?? "Untitled task",
+          dueDate: item.due ?? null,
+          notes,
+          createdAt: metadata.createdAt,
+          updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
+          completed: item.status === "completed",
+          calendarSync: metadata.calendarEventId ? "synced" : "failed",
+          tasksSync: item.id ? "synced" : "failed",
+          calendarSyncMessage: metadata.calendarEventId
+            ? "Calendar synced successfully."
+            : "Calendar sync needs attention.",
+          tasksSyncMessage: item.id
+            ? "Google Tasks synced successfully."
+            : "Google Tasks sync needs attention.",
+          lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
+          calendarEventId: metadata.calendarEventId,
+          googleTaskId: item.id ?? null
+        });
       }
 
-      collected.push({
-        id: metadata.id,
-        title: item.title ?? "Untitled task",
-        dueDate: item.due ?? null,
-        notes,
-        createdAt: metadata.createdAt,
-        updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
-        completed: item.status === "completed",
-        calendarSync: metadata.calendarEventId ? "synced" : "failed",
-        tasksSync: item.id ? "synced" : "failed",
-        calendarSyncMessage: metadata.calendarEventId
-          ? "Calendar synced successfully."
-          : "Calendar sync needs attention.",
-        tasksSyncMessage: item.id
-          ? "Google Tasks synced successfully."
-          : "Google Tasks sync needs attention.",
-        lastSyncAttemptedAt: metadata.lastSyncAttemptedAt,
-        calendarEventId: metadata.calendarEventId,
-        googleTaskId: item.id ?? null
-      });
-    }
-
-    pageToken = response.data.nextPageToken ?? undefined;
-  } while (pageToken);
+      pageToken = response.data.nextPageToken ?? undefined;
+    } while (pageToken);
+  } catch {
+    return [];
+  }
 
   return collected.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }

@@ -4,13 +4,21 @@ import { createTaskAndSync, listTasks } from "@/lib/tasks";
 import { taskInputSchema } from "@/types/task";
 
 export async function GET() {
-  const session = await getGoogleSession();
-  const tasks = await listTasks(session);
+  try {
+    const session = await getGoogleSession();
+    const tasks = await listTasks(session);
 
-  return NextResponse.json({
-    ok: true,
-    tasks
-  });
+    return NextResponse.json({
+      ok: true,
+      tasks
+    });
+  } catch (error) {
+    return NextResponse.json({
+      ok: true,
+      tasks: [],
+      warning: error instanceof Error ? error.message : "Task list could not be loaded."
+    });
+  }
 }
 
 export async function POST(request: Request) {

@@ -247,6 +247,10 @@ async function persistManagedTaskMetadata(
   taskId: string,
   task: TaskRecord
 ) {
+  if (!taskId) {
+    throw new Error("Missing task ID");
+  }
+
   await tasksApi.tasks.update({
     tasklist,
     task: taskId,
@@ -257,6 +261,24 @@ async function persistManagedTaskMetadata(
       status: task.completed ? "completed" : "needsAction"
     }
   });
+}
+
+async function persistManagedTaskMetadataSafely(
+  tasksApi: tasks_v1.Tasks,
+  tasklist: string,
+  taskId: string | null,
+  task: TaskRecord
+) {
+  if (!taskId) {
+    return false;
+  }
+
+  try {
+    await persistManagedTaskMetadata(tasksApi, tasklist, taskId, task);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function findMatchingCalendarEventId(
@@ -361,7 +383,7 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
         };
 
         if (item.id && calendarEventId && calendarEventId !== metadata.calendarEventId) {
-          await persistManagedTaskMetadata(tasksApi, tasklistId, item.id, task).catch(() => undefined);
+          await persistManagedTaskMetadataSafely(tasksApi, tasklistId, item.id, task);
         }
 
         collected.push(task);
@@ -454,7 +476,7 @@ export async function createGoogleBackedTask(
   }
 
   if (record.googleTaskId) {
-    await persistManagedTaskMetadata(tasksApi, tasklistId, record.googleTaskId, record);
+    await persistManagedTaskMetadataSafely(tasksApi, tasklistId, record.googleTaskId, record);
   }
 
   return record;
@@ -542,15 +564,23 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
     nextTask.tasksSync = "synced";
     nextTask.tasksSyncMessage = "Google Tasks synced successfully.";
     if (nextTask.googleTaskId) {
-      await persistManagedTaskMetadata(tasksApi, tasklistId, nextTask.googleTaskId, nextTask);
+      await persistManagedTaskMetadataSafely(
+        tasksApi,
+        tasklistId,
+        nextTask.googleTaskId,
+        nextTask
+      );
     }
   } catch (error) {
     nextTask.tasksSync = "failed";
     nextTask.tasksSyncMessage =
       error instanceof Error ? error.message : "Google Tasks sync failed.";
     if (nextTask.googleTaskId) {
-      await persistManagedTaskMetadata(tasksApi, tasklistId, nextTask.googleTaskId, nextTask).catch(
-        () => undefined
+      await persistManagedTaskMetadataSafely(
+        tasksApi,
+        tasklistId,
+        nextTask.googleTaskId,
+        nextTask
       );
     }
   }

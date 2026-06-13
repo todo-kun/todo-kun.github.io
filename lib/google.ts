@@ -46,6 +46,7 @@ type SyncResult = {
 type ManagedTaskMetadata = {
   version: 1;
   id: string;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
   calendarEventId: string | null;
@@ -164,6 +165,7 @@ async function buildAuthorizedClient(tokens: GoogleTokens) {
 function buildManagedTaskMetadata(task: Pick<
   TaskRecord,
   | "id"
+  | "dueDate"
   | "createdAt"
   | "updatedAt"
   | "calendarEventId"
@@ -176,6 +178,7 @@ function buildManagedTaskMetadata(task: Pick<
   return {
     version: 1,
     id: task.id,
+    dueDate: task.dueDate,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     calendarEventId: task.calendarEventId,
@@ -192,6 +195,7 @@ export function encodeManagedTaskNotes(
   task: Pick<
     TaskRecord,
     | "id"
+    | "dueDate"
     | "createdAt"
     | "updatedAt"
     | "calendarEventId"
@@ -271,7 +275,7 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
         collected.push({
           id: metadata.id,
           title: item.title ?? "Untitled task",
-          dueDate: item.due ?? null,
+          dueDate: metadata.dueDate ?? item.due ?? null,
           notes,
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,

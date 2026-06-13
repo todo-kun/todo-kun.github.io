@@ -1,37 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, FormEvent, useEffect, useRef, useState, useTransition } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState, useTransition } from "react";
 import type { RegisteredMember, TaskRecord, TaskTaxonomy, TaxonomyKind } from "@/types/task";
-
-type BrowserSpeechRecognitionResultEvent = Event & {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
-};
-
-type BrowserSpeechRecognitionErrorEvent = Event & {
-  error?: string;
-};
-
-type BrowserSpeechRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  onend: null | (() => void);
-  onerror: null | ((event: BrowserSpeechRecognitionErrorEvent) => void);
-  onresult: null | ((event: BrowserSpeechRecognitionResultEvent) => void);
-  start: () => void;
-  stop: () => void;
-};
-
-type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
-
-declare global {
-  interface Window {
-    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
-    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
-  }
-}
 
 type GoogleStatus = {
   configured: boolean;
@@ -87,10 +58,6 @@ type TaskMutationResponse = {
   ok: boolean;
   task?: TaskRecord;
   error?: string;
-};
-
-type VoiceTaskResponse = TaskMutationResponse & {
-  transcript?: string;
 };
 
 type BulkSyncResponse = {
@@ -255,16 +222,7 @@ export function HomeClient({
   const [isExporting, startExportTransition] = useTransition();
   const [isImporting, startImportTransition] = useTransition();
   const [isManagingDirectory, startDirectoryTransition] = useTransition();
-  const [isRecording, setIsRecording] = useState(false);
-  const [isVoiceSaving, startVoiceSavingTransition] = useTransition();
-  const [voiceSupported] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
-  );
-  const [voiceTranscript, setVoiceTranscript] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   useEffect(() => {
     void refreshStatus();
@@ -278,13 +236,6 @@ export function HomeClient({
       window.history.replaceState({}, "", "/");
     }
   }, [shouldCleanQuery]);
-
-  useEffect(() => {
-    return () => {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
-    };
-  }, []);
 
   async function refreshStatus() {
     const response = await fetch("/api/google/status", { cache: "no-store" });
@@ -384,95 +335,6 @@ export function HomeClient({
         setMessage(error instanceof Error ? error.message : "タスクを保存できませんでした。");
       }
     });
-  }
-
-  async function submitVoiceTranscript(transcript: string) {
-    startVoiceSavingTransition(async () => {
-      try {
-        const response = await fetch("/api/tasks/voice", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ transcript })
-        });
-
-        const result = await readApiJson<VoiceTaskResponse>(response);
-
-        if (!response.ok || !result.task) {
-          throw new Error(result.error ?? "音声からタスクを作成できませんでした。");
-        }
-
-        setTasks((current) => [result.task!, ...current]);
-        setForm(emptyForm);
-        setEditingTaskId(null);
-        setVoiceTranscript(result.transcript ?? transcript);
-        setMessage("音声からタスクを登録しました。");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "音声からタスクを作成できませんでした。");
-      }
-    });
-  }
-
-  function handleVoiceInputToggle() {
-    if (isVoiceSaving) {
-      return;
-    }
-
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      return;
-    }
-
-    const Recognition =
-      typeof window === "undefined" ? undefined : window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!Recognition) {
-      setMessage("このブラウザでは音声入力に対応していません。");
-      return;
-    }
-
-    const recognition = new Recognition();
-    recognition.lang = "ja-JP";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognitionRef.current = recognition;
-
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
-
-      setVoiceTranscript(transcript);
-
-      if (!transcript) {
-        setMessage("音声を聞き取れませんでした。もう一度試してください。");
-        return;
-      }
-
-      void submitVoiceTranscript(transcript);
-    };
-
-    recognition.onerror = (event) => {
-      if (event.error === "not-allowed") {
-        setMessage("音声入力を使うにはマイクの許可が必要です。");
-        return;
-      }
-
-      setMessage("音声入力に失敗しました。静かな場所で再度お試しください。");
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-      recognitionRef.current = null;
-    };
-
-    setMessage("");
-    setVoiceTranscript("");
-    setIsRecording(true);
-    recognition.start();
   }
 
   async function handleDisconnect() {
@@ -1011,33 +873,6 @@ export function HomeClient({
             <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
             <p>登録した内容は、Google 連携済みならカレンダーと To Do に自動反映されます。</p>
           </div>
-
-          <div className="voice-panel">
-            <div className="voice-panel-copy">
-              <strong>音声でサッと登録</strong>
-              <span>話した内容をAIが整理して、そのままタスクに登録します。</span>
-            </div>
-            <button
-              className="ghost-button voice-button"
-              disabled={isVoiceSaving}
-              onClick={handleVoiceInputToggle}
-              type="button"
-            >
-              {isVoiceSaving ? "AIで整理中..." : isRecording ? "録音を止める" : "音声で入力"}
-            </button>
-          </div>
-
-          {voiceSupported ? (
-            <p className="voice-hint">
-              {isRecording
-                ? "録音中です。話し終えたら自動でタスク化します。"
-                : "Chrome系ブラウザではマイクからそのまま登録できます。"}
-            </p>
-          ) : (
-            <p className="voice-hint">このブラウザでは音声入力に未対応です。通常入力はそのまま使えます。</p>
-          )}
-
-          {voiceTranscript ? <p className="voice-transcript">聞き取り内容: {voiceTranscript}</p> : null}
 
           <label>
             タスク名
@@ -1590,16 +1425,6 @@ export function HomeClient({
           )}
         </div>
       </section>
-
-      <button
-        aria-label="音声でタスクを入力"
-        className="mobile-voice-fab"
-        disabled={isVoiceSaving}
-        onClick={handleVoiceInputToggle}
-        type="button"
-      >
-        {isVoiceSaving ? "AI整理中" : isRecording ? "録音停止" : "音声入力"}
-      </button>
     </main>
   );
 }

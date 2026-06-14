@@ -88,7 +88,9 @@ const syncLabels = {
 const emptyForm = {
   title: "",
   dueDate: "",
+  dueTime: "",
   endDate: "",
+  endTime: "",
   syncToCalendar: true,
   syncToTasks: true,
   reminderHoursBefore: "",
@@ -171,12 +173,16 @@ function getApiErrorMessage(result: unknown, fallback: string) {
   return fallback;
 }
 
-function toApiDateValue(value: string) {
-  if (!value) {
+function toApiDateValue(dateValue: string, timeValue = "") {
+  if (!dateValue) {
     return "";
   }
 
-  return value;
+  if (!timeValue) {
+    return dateValue;
+  }
+
+  return new Date(`${dateValue}T${timeValue}:00+09:00`).toISOString();
 }
 
 function toDateInputValue(value: string | null) {
@@ -192,6 +198,17 @@ function toDateInputValue(value: string | null) {
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60 * 1000);
   return localDate.toISOString().slice(0, 10);
+}
+
+function toTimeInputValue(value: string | null) {
+  if (!value || !value.includes("T")) {
+    return "";
+  }
+
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+  return localDate.toISOString().slice(11, 16);
 }
 
 function getProjectMembers(projectName: string, members: RegisteredMember[]) {
@@ -332,8 +349,8 @@ export function HomeClient({
           },
           body: JSON.stringify({
             title: form.title,
-            dueDate: toApiDateValue(form.dueDate),
-            endDate: toApiDateValue(form.endDate),
+            dueDate: toApiDateValue(form.dueDate, form.dueTime),
+            endDate: toApiDateValue(form.endDate, form.endTime),
             syncToCalendar: form.syncToCalendar,
             syncToTasks: form.syncToTasks,
             reminderHoursBefore: form.reminderHoursBefore ? Number(form.reminderHoursBefore) : undefined,
@@ -599,7 +616,9 @@ export function HomeClient({
     setForm({
       title: task.title,
       dueDate: toDateInputValue(task.dueDate),
+      dueTime: toTimeInputValue(task.dueDate),
       endDate: toDateInputValue(task.endDate),
+      endTime: toTimeInputValue(task.endDate),
       syncToCalendar: task.syncToCalendar,
       syncToTasks: task.syncToTasks,
       reminderHoursBefore:
@@ -957,12 +976,36 @@ export function HomeClient({
           </div>
 
           <label>
-            期限
-            <input
-              type="date"
-              value={form.dueDate}
-              onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))}
-            />
+            開始日
+            <div className="inline-form">
+              <input
+                type="date"
+                value={form.dueDate}
+                onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))}
+              />
+              <input
+                type="time"
+                value={form.dueTime}
+                onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))}
+              />
+            </div>
+          </label>
+
+          <label>
+            終了日
+            <div className="inline-form">
+              <input
+                type="date"
+                value={form.endDate}
+                min={form.dueDate || undefined}
+                onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))}
+              />
+              <input
+                type="time"
+                value={form.endTime}
+                onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))}
+              />
+            </div>
           </label>
 
           <div className="task-chip-row">
@@ -1024,16 +1067,6 @@ export function HomeClient({
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
               placeholder="補足や次のアクションを書けます"
               rows={4}
-            />
-          </label>
-
-          <label>
-            終了日
-            <input
-              type="date"
-              value={form.endDate}
-              min={form.dueDate || undefined}
-              onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))}
             />
           </label>
 
@@ -1557,6 +1590,33 @@ function formatTaskPeriod(task: Pick<TaskRecord, "dueDate" | "endDate">) {
 
   if (!task.endDate || task.endDate === task.dueDate) {
     return formatDate(task.dueDate);
+  }
+
+  if (task.dueDate.includes("T") && task.endDate.includes("T")) {
+    const start = new Date(task.dueDate);
+    const end = new Date(task.endDate);
+    const sameDay =
+      start.getFullYear() === end.getFullYear() &&
+      start.getMonth() === end.getMonth() &&
+      start.getDate() === end.getDate();
+
+    if (sameDay) {
+      const dayLabel = new Intl.DateTimeFormat("ja-JP", {
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+      }).format(start);
+      const startTime = new Intl.DateTimeFormat("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(start);
+      const endTime = new Intl.DateTimeFormat("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(end);
+
+      return `${dayLabel} ${startTime}〜${endTime}`;
+    }
   }
 
   return `${formatDate(task.dueDate)}〜${formatDate(task.endDate)}`;

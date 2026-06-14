@@ -856,73 +856,63 @@ export function HomeClient({
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
-        <div className="hero-copy">
+      <div className="app-layout">
+        <aside className="sidebar-card">
           <div className="brand-chip">タスク管理アプリ「トドくん」</div>
-          <h1>プロジェクトごとに整理して、やることをトドける。</h1>
-          <p className="lead">
-            トドくんは、ブラウザだけで使えるやさしいタスク管理アプリです。プロジェクトフォルダを作って、
-            タスクの種類も分類しながら、Google カレンダーと Google To Do に自動で反映できます。
-          </p>
-          <div className="hero-points" aria-label="アプリの特徴">
-            <div className="hero-point">プロジェクト整理</div>
-            <div className="hero-point">カテゴリー追加</div>
-            <div className="hero-point">Google 自動連携</div>
-          </div>
-        </div>
-
-        <div className="hero-visual">
-          <div className="mascot-card">
+          <div className="sidebar-mascot">
             <Image
               alt="トドくんのイメージキャラクター"
               className="mascot-image"
-              height={360}
+              height={220}
               priority
               src="/todokun.png"
-              width={360}
+              width={220}
             />
-            <div className="mascot-bubble">
-              <strong>今日のひとこと</strong>
-              <p>案件ごとでも作業の種類ごとでも、参加メンバーごとでも、トドくんが見やすく整理します。</p>
-            </div>
           </div>
-          <div className="hero-status">
-            <div className="status-pill">
-              <span className="status-dot" data-active={googleStatus.connected} />
-              <span>
-                {googleStatus.connected
-                  ? "Google 連携中"
-                  : googleStatus.configured
-                    ? "Google 連携の準備完了"
-                    : "Google 設定が未完了"}
-              </span>
-            </div>
-
-            <div className="action-row">
-              {googleStatus.connected ? (
-                <button
-                  className="secondary-button"
-                  onClick={handleDisconnect}
-                  disabled={isDisconnecting}
-                  type="button"
-                >
-                  {isDisconnecting ? "解除中..." : "Google 連携を解除"}
-                </button>
-              ) : (
-                <a className="primary-link" href="/api/google/connect">
-                  Google とつなぐ
-                </a>
-              )}
-            </div>
+          <div className="status-pill">
+            <span className="status-dot" data-active={googleStatus.connected} />
+            <span>
+              {googleStatus.connected
+                ? "Google 連携中"
+                : googleStatus.configured
+                  ? "Google 連携の準備完了"
+                  : "Google 設定が未完了"}
+            </span>
           </div>
-        </div>
-      </section>
+          <nav className="sidebar-nav" aria-label="ページメニュー">
+            <a href="#task-create">タスク作成</a>
+            <a href="#sync-settings">連携設定</a>
+            <a href="#project-manager">プロジェクト管理</a>
+            <a href="#category-manager">種類管理</a>
+            <a href="#member-directory">参加メンバー</a>
+            <a href="#setup-check">はじめの連携チェック</a>
+            <a href="#task-summary">サマリー</a>
+            <a href="#task-list">タスク一覧</a>
+          </nav>
+          <div className="action-row sidebar-actions">
+            {googleStatus.connected ? (
+              <button
+                className="secondary-button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                type="button"
+              >
+                {isDisconnecting ? "解除中..." : "Google 連携を解除"}
+              </button>
+            ) : (
+              <a className="primary-link" href="/api/google/connect">
+                Google とつなぐ
+              </a>
+            )}
+          </div>
+        </aside>
 
-      <section className="content-grid">
+        <div className="content-stack">
+      <section className="task-top-section" id="task-create">
         <form className="task-card" onSubmit={handleSubmit}>
           <div className="section-heading">
             <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
-            <p>登録した内容は、Google 連携済みならカレンダーと To Do に自動反映されます。</p>
+            <p>最初に見えるのはこの登録画面だけです。ほかの機能は左のメニューから移動できます。</p>
           </div>
 
           <label>
@@ -1111,7 +1101,9 @@ export function HomeClient({
 
           {message ? <p className="status-message">{message}</p> : null}
         </form>
+      </section>
 
+      <section className="content-grid anchored-section" id="sync-settings">
         <aside className="info-card">
           <div className="section-heading">
             <h2>連携設定</h2>
@@ -1213,7 +1205,7 @@ export function HomeClient({
       </section>
 
       <section className="manager-grid">
-        <article className="manager-card">
+        <article className="manager-card" id="project-manager">
           <div className="section-heading">
             <h2>プロジェクトフォルダ</h2>
             <p>案件ごとの箱を先に作っておくと、あとから迷わず登録できます。</p>
@@ -1241,7 +1233,7 @@ export function HomeClient({
           </div>
         </article>
 
-        <article className="manager-card">
+        <article className="manager-card" id="category-manager">
           <div className="section-heading">
             <h2>タスクの種類</h2>
             <p>メール送信、アポ調整、資料作成のように、作業の種類でも整理できます。</p>
@@ -1274,7 +1266,7 @@ export function HomeClient({
           </div>
         </article>
 
-        <article className="manager-card manager-card-wide">
+        <article className="manager-card manager-card-wide" id="member-directory">
           <div className="section-heading">
             <h2>参加メンバー名簿</h2>
             <p>Google アカウントのメールアドレスを先に登録しておくと、タスク登録時にチェックボックスで選べます。</p>
@@ -1369,7 +1361,7 @@ export function HomeClient({
         </article>
       </section>
 
-      <section className="setup-card">
+      <section className="setup-card" id="setup-check">
         <div className="section-heading">
           <h2>はじめの連携チェック</h2>
           <p>上から順にそろえると、ブラウザ上から Google 連携を始めやすくなります。</p>
@@ -1390,7 +1382,7 @@ export function HomeClient({
         </p>
       </section>
 
-      <section className="stats-grid" aria-label="Task summary">
+      <section className="stats-grid" aria-label="Task summary" id="task-summary">
         <article className="stat-card">
           <span className="stat-label">登録タスク</span>
           <strong>{taskSummary.total}</strong>
@@ -1409,7 +1401,7 @@ export function HomeClient({
         </article>
       </section>
 
-      <section className="list-card">
+      <section className="list-card" id="task-list">
         <div className="section-heading section-heading-row">
           <div>
             <h2>タスク一覧</h2>
@@ -1561,6 +1553,8 @@ export function HomeClient({
           )}
         </div>
       </section>
+        </div>
+      </div>
     </main>
   );
 }

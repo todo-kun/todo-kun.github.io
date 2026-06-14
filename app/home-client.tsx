@@ -897,13 +897,13 @@ export function HomeClient({
           </div>
           <nav className="sidebar-nav" aria-label="ページメニュー">
             <a href="#task-create">タスク作成</a>
+            <a href="#task-list">タスク一覧</a>
             <a href="#sync-settings">連携設定</a>
             <a href="#project-manager">プロジェクト管理</a>
             <a href="#category-manager">種類管理</a>
             <a href="#member-directory">参加メンバー</a>
             <a href="#setup-check">はじめの連携チェック</a>
             <a href="#task-summary">サマリー</a>
-            <a href="#task-list">タスク一覧</a>
           </nav>
         </aside>
 

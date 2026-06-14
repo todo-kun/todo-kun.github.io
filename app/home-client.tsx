@@ -1466,56 +1466,27 @@ export function HomeClient({
                 <div className="task-main">
                   <div className="task-title-row">
                     <h3>{task.title}</h3>
-                    <span className="task-badge">{task.completed ? "完了" : "進行中"}</span>
                   </div>
-                  <div className="task-chip-row">
-                    {task.projectName ? <span className="task-chip">案件: {task.projectName}</span> : null}
-                    {task.categoryName ? <span className="task-chip">種類: {task.categoryName}</span> : null}
-                    {!task.syncToCalendar && !task.syncToTasks ? (
-                      <span className="task-chip">アプリのみ</span>
-                    ) : null}
-                    {formatReminderSummary(task) ? (
-                      <span className="task-chip">通知: {formatReminderSummary(task)}</span>
-                    ) : null}
-                    {task.memberEmails.map((email) => (
-                      <span className="task-chip" key={email}>
-                        参加: {email}
-                      </span>
-                    ))}
-                  </div>
-                  <p>{task.notes || "メモはまだありません。"}</p>
                 </div>
 
                 <dl className="task-meta">
                   <div>
-                    <dt>期限</dt>
+                    <dt>プロジェクト名</dt>
+                    <dd>{task.projectName || "未設定"}</dd>
+                  </div>
+                  <div>
+                    <dt>期間</dt>
                     <dd>{formatTaskPeriod(task)}</dd>
                   </div>
                   <div>
-                    <dt>カレンダー</dt>
-                    <dd>{syncLabels[task.calendarSync]}</dd>
+                    <dt>参加者</dt>
+                    <dd>{task.memberEmails.length > 0 ? task.memberEmails.join(" / ") : "未設定"}</dd>
                   </div>
                   <div>
-                    <dt>To Do</dt>
-                    <dd>{syncLabels[task.tasksSync]}</dd>
-                  </div>
-                  <div>
-                    <dt>参加人数</dt>
-                    <dd>{task.memberEmails.length}人</dd>
+                    <dt>メモ</dt>
+                    <dd>{task.notes || "メモはまだありません。"}</dd>
                   </div>
                 </dl>
-
-                <div className="sync-details">
-                  <p>
-                    <strong>カレンダー:</strong> {task.calendarSyncMessage}
-                  </p>
-                  <p>
-                    <strong>To Do:</strong> {task.tasksSyncMessage}
-                  </p>
-                  <p>
-                    <strong>最終連携:</strong> {task.lastSyncAttemptedAt ? formatDate(task.lastSyncAttemptedAt) : "まだ実行されていません"}
-                  </p>
-                </div>
 
                 <div className="task-actions">
                   <button className="ghost-button" onClick={() => startEdit(task)} type="button">

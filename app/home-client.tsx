@@ -858,6 +858,22 @@ export function HomeClient({
     <main className="page-shell">
       <div className="app-layout">
         <aside className="sidebar-card">
+          <div className="action-row sidebar-actions">
+            {googleStatus.connected ? (
+              <button
+                className="secondary-button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                type="button"
+              >
+                {isDisconnecting ? "解除中..." : "Google 連携を解除"}
+              </button>
+            ) : (
+              <a className="primary-link" href="/api/google/connect">
+                Google とつなぐ
+              </a>
+            )}
+          </div>
           <div className="brand-chip">タスク管理アプリ「トドくん」</div>
           <div className="sidebar-mascot">
             <Image
@@ -889,22 +905,6 @@ export function HomeClient({
             <a href="#task-summary">サマリー</a>
             <a href="#task-list">タスク一覧</a>
           </nav>
-          <div className="action-row sidebar-actions">
-            {googleStatus.connected ? (
-              <button
-                className="secondary-button"
-                onClick={handleDisconnect}
-                disabled={isDisconnecting}
-                type="button"
-              >
-                {isDisconnecting ? "解除中..." : "Google 連携を解除"}
-              </button>
-            ) : (
-              <a className="primary-link" href="/api/google/connect">
-                Google とつなぐ
-              </a>
-            )}
-          </div>
         </aside>
 
         <div className="content-stack">

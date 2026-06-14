@@ -123,14 +123,11 @@ button {
 }
 
 .task-top-section {
-  max-width: 860px;
-}
-
-.anchored-section {
   max-width: 1100px;
 }
 
-.task-top-section .task-card {
+.task-top-section .task-card,
+.task-top-section .info-card {
   min-height: min(88vh, 980px);
 }
 

@@ -908,7 +908,7 @@ export function HomeClient({
         </aside>
 
         <div className="content-stack">
-      <section className="task-top-section" id="task-create">
+      <section className="content-grid task-top-section" id="task-create">
         <form className="task-card" onSubmit={handleSubmit}>
           <div className="section-heading">
             <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
@@ -1101,10 +1101,7 @@ export function HomeClient({
 
           {message ? <p className="status-message">{message}</p> : null}
         </form>
-      </section>
-
-      <section className="content-grid anchored-section" id="sync-settings">
-        <aside className="info-card">
+        <aside className="info-card" id="sync-settings">
           <div className="section-heading">
             <h2>連携設定</h2>
             <p>最初に一度だけ設定すれば、その後はブラウザからそのまま使えます。</p>

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { readJsonFile, writeJsonFile } from "@/lib/file-store";
-import { writeGoogleDriveTaskSnapshot } from "@/lib/google-drive-state";
+import {
+  readGoogleDriveAppState,
+  writeGoogleDriveTaskSnapshot
+} from "@/lib/google-drive-state";
 import {
   createGoogleBackedTask,
   deleteTaskFromGoogle,
@@ -20,6 +23,40 @@ function getTaskStorageProvider() {
   return process.env.TASK_STORAGE_PROVIDER === "google" ? "google" : "local";
 }
 
+function normalizeTaskRecord(task: TaskRecord): TaskRecord {
+  return {
+    ...task,
+    endDate: task.endDate ?? task.dueDate ?? null,
+    syncToCalendar: task.syncToCalendar ?? true,
+    syncToTasks: task.syncToTasks ?? true,
+    reminderHoursBefore: task.reminderHoursBefore ?? null,
+    dailyReminderHour: task.dailyReminderHour ?? null,
+    projectName: task.projectName ?? "",
+    categoryName: task.categoryName ?? "",
+    memberEmails: task.memberEmails ?? [],
+    reminderEventId: task.reminderEventId ?? null
+  };
+}
+
+async function listGoogleDriveOnlyTasks(session: GoogleTokens | null) {
+  const state = await readGoogleDriveAppState(session);
+  return (state?.taskSnapshot ?? [])
+    .map((task) => normalizeTaskRecord(task))
+    .filter((task) => task.syncToTasks === false);
+}
+
+async function saveGoogleTaskSnapshot(
+  googleTasks: TaskRecord[],
+  driveOnlyTasks: TaskRecord[],
+  session: GoogleTokens | null
+) {
+  const merged = [...googleTasks, ...driveOnlyTasks]
+    .map((task) => normalizeTaskRecord(task))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeGoogleDriveTaskSnapshot(merged, session).catch(() => null);
+  return merged;
+}
+
 export type TaskBackup = {
   exportedAt: string;
   version: 1;
@@ -33,22 +70,15 @@ export type TaskBackup = {
 
 export async function listTasks(session: GoogleTokens | null = null) {
   if (getTaskStorageProvider() === "google") {
-    const tasks = await listGoogleBackedTasks(session);
-    await writeGoogleDriveTaskSnapshot(tasks, session).catch(() => null);
-    return tasks;
+    const [googleTasks, driveOnlyTasks] = await Promise.all([
+      listGoogleBackedTasks(session),
+      listGoogleDriveOnlyTasks(session)
+    ]);
+    return saveGoogleTaskSnapshot(googleTasks, driveOnlyTasks, session);
   }
 
   const tasks = await readJsonFile<TaskRecord[]>(tasksFileName, []);
-  const normalized = tasks.map((task) => ({
-    ...task,
-    endDate: task.endDate ?? task.dueDate ?? null,
-    reminderHoursBefore: task.reminderHoursBefore ?? null,
-    dailyReminderHour: task.dailyReminderHour ?? null,
-    projectName: task.projectName ?? "",
-    categoryName: task.categoryName ?? "",
-    memberEmails: task.memberEmails ?? [],
-    reminderEventId: task.reminderEventId ?? null
-  }));
+  const normalized = tasks.map((task) => normalizeTaskRecord(task));
   return normalized.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
@@ -56,8 +86,59 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
   await ensureTaskTaxonomy(input.projectName, input.categoryName);
 
   if (getTaskStorageProvider() === "google") {
-    const created = await createGoogleBackedTask(input, session);
-    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    if (input.syncToTasks !== false) {
+      const created = await createGoogleBackedTask(input, session);
+      await saveGoogleTaskSnapshot(
+        await listGoogleBackedTasks(session),
+        await listGoogleDriveOnlyTasks(session),
+        session
+      );
+      return created;
+    }
+
+    const timestamp = new Date().toISOString();
+    const draft: TaskRecord = {
+      id: randomUUID(),
+      title: input.title,
+      dueDate: input.dueDate || null,
+      endDate: input.endDate || input.dueDate || null,
+      syncToCalendar: input.syncToCalendar !== false,
+      syncToTasks: false,
+      reminderHoursBefore: input.reminderHoursBefore ?? null,
+      dailyReminderHour: input.dailyReminderHour ?? null,
+      notes: input.notes ?? "",
+      projectName: input.projectName?.trim() ?? "",
+      categoryName: input.categoryName?.trim() ?? "",
+      memberEmails: input.memberEmails ?? [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      completed: false,
+      calendarSync: "disabled",
+      tasksSync: "disabled",
+      calendarSyncMessage: "Not selected for sync.",
+      tasksSyncMessage: "Not selected for sync.",
+      lastSyncAttemptedAt: null,
+      calendarEventId: null,
+      reminderEventId: null,
+      googleTaskId: null
+    };
+    const syncResult = await syncStoredTaskToGoogle(draft, session);
+    const created = normalizeTaskRecord({
+      ...draft,
+      calendarSync: syncResult.calendar.status,
+      tasksSync: syncResult.tasks.status,
+      calendarSyncMessage: syncResult.calendar.message,
+      tasksSyncMessage: syncResult.tasks.message,
+      lastSyncAttemptedAt: draft.syncToCalendar ? timestamp : null,
+      calendarEventId: syncResult.calendar.externalId,
+      reminderEventId: syncResult.calendar.reminderExternalId ?? null,
+      googleTaskId: syncResult.tasks.externalId
+    });
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      [...(await listGoogleDriveOnlyTasks(session)), created],
+      session
+    );
     return created;
   }
 
@@ -70,6 +151,8 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    syncToCalendar: input.syncToCalendar !== false,
+    syncToTasks: input.syncToTasks !== false,
     reminderHoursBefore: input.reminderHoursBefore ?? null,
     dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
@@ -83,7 +166,8 @@ export async function createTaskAndSync(input: TaskInput, session: GoogleTokens 
     tasksSync: syncResult.tasks.status,
     calendarSyncMessage: syncResult.calendar.message,
     tasksSyncMessage: syncResult.tasks.message,
-    lastSyncAttemptedAt: timestamp,
+    lastSyncAttemptedAt:
+      input.syncToCalendar === false && input.syncToTasks === false ? null : timestamp,
     calendarEventId: syncResult.calendar.externalId,
     reminderEventId: syncResult.calendar.reminderExternalId ?? null,
     googleTaskId: syncResult.tasks.externalId
@@ -114,23 +198,49 @@ export async function updateTaskAndSync(
       return null;
     }
 
-    const updated = await syncGoogleBackedTask(
-      {
-        ...current,
-        title: input.title,
-        dueDate: input.dueDate || null,
-        endDate: input.endDate || input.dueDate || null,
-        reminderHoursBefore: input.reminderHoursBefore ?? null,
-        dailyReminderHour: input.dailyReminderHour ?? null,
-        notes: input.notes ?? "",
-        projectName: input.projectName?.trim() ?? "",
-        categoryName: input.categoryName?.trim() ?? "",
-        memberEmails: input.memberEmails ?? [],
-        completed: input.completed ?? current.completed
-      },
+    const candidate: TaskRecord = {
+      ...current,
+      title: input.title,
+      dueDate: input.dueDate || null,
+      endDate: input.endDate || input.dueDate || null,
+      syncToCalendar: current.syncToCalendar,
+      syncToTasks: current.syncToTasks,
+      reminderHoursBefore: input.reminderHoursBefore ?? null,
+      dailyReminderHour: input.dailyReminderHour ?? null,
+      notes: input.notes ?? "",
+      projectName: input.projectName?.trim() ?? "",
+      categoryName: input.categoryName?.trim() ?? "",
+      memberEmails: input.memberEmails ?? [],
+      completed: input.completed ?? current.completed
+    };
+
+    if (current.syncToTasks) {
+      const updated = await syncGoogleBackedTask(candidate, session);
+      await saveGoogleTaskSnapshot(
+        await listGoogleBackedTasks(session),
+        await listGoogleDriveOnlyTasks(session),
+        session
+      );
+      return updated;
+    }
+
+    const syncResult = await syncStoredTaskToGoogle(candidate, session);
+    const updated = normalizeTaskRecord({
+      ...candidate,
+      calendarSync: syncResult.calendar.status,
+      tasksSync: syncResult.tasks.status,
+      calendarSyncMessage: syncResult.calendar.message,
+      tasksSyncMessage: syncResult.tasks.message,
+      lastSyncAttemptedAt: candidate.syncToCalendar ? new Date().toISOString() : current.lastSyncAttemptedAt,
+      calendarEventId: syncResult.calendar.externalId,
+      reminderEventId: syncResult.calendar.reminderExternalId ?? candidate.reminderEventId ?? null,
+      googleTaskId: syncResult.tasks.externalId
+    });
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      (await listGoogleDriveOnlyTasks(session)).map((task) => (task.id === taskId ? updated : task)),
       session
     );
-    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
     return updated;
   }
 
@@ -146,6 +256,8 @@ export async function updateTaskAndSync(
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    syncToCalendar: input.syncToCalendar ?? tasks[index].syncToCalendar ?? true,
+    syncToTasks: input.syncToTasks ?? tasks[index].syncToTasks ?? true,
     reminderHoursBefore: input.reminderHoursBefore ?? null,
     dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
@@ -162,7 +274,8 @@ export async function updateTaskAndSync(
   nextTask.tasksSync = syncResult.tasks.status;
   nextTask.calendarSyncMessage = syncResult.calendar.message;
   nextTask.tasksSyncMessage = syncResult.tasks.message;
-  nextTask.lastSyncAttemptedAt = new Date().toISOString();
+  nextTask.lastSyncAttemptedAt =
+    nextTask.syncToCalendar || nextTask.syncToTasks ? new Date().toISOString() : nextTask.lastSyncAttemptedAt;
   nextTask.calendarEventId = syncResult.calendar.externalId;
   nextTask.reminderEventId = syncResult.calendar.reminderExternalId ?? nextTask.reminderEventId ?? null;
   nextTask.googleTaskId = syncResult.tasks.externalId;
@@ -182,8 +295,34 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
       return null;
     }
 
-    const refreshed = await syncGoogleBackedTask(current, session);
-    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    if (current.syncToTasks) {
+      const refreshed = await syncGoogleBackedTask(current, session);
+      await saveGoogleTaskSnapshot(
+        await listGoogleBackedTasks(session),
+        await listGoogleDriveOnlyTasks(session),
+        session
+      );
+      return refreshed;
+    }
+
+    const syncResult = await syncStoredTaskToGoogle(current, session);
+    const refreshed = normalizeTaskRecord({
+      ...current,
+      updatedAt: new Date().toISOString(),
+      calendarSync: syncResult.calendar.status,
+      tasksSync: syncResult.tasks.status,
+      calendarSyncMessage: syncResult.calendar.message,
+      tasksSyncMessage: syncResult.tasks.message,
+      lastSyncAttemptedAt: current.syncToCalendar ? new Date().toISOString() : current.lastSyncAttemptedAt,
+      calendarEventId: syncResult.calendar.externalId,
+      reminderEventId: syncResult.calendar.reminderExternalId ?? current.reminderEventId ?? null,
+      googleTaskId: syncResult.tasks.externalId
+    });
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      (await listGoogleDriveOnlyTasks(session)).map((task) => (task.id === taskId ? refreshed : task)),
+      session
+    );
     return refreshed;
   }
 
@@ -203,7 +342,10 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
     tasksSync: syncResult.tasks.status,
     calendarSyncMessage: syncResult.calendar.message,
     tasksSyncMessage: syncResult.tasks.message,
-    lastSyncAttemptedAt: new Date().toISOString(),
+    lastSyncAttemptedAt:
+      tasks[index].syncToCalendar || tasks[index].syncToTasks
+        ? new Date().toISOString()
+        : tasks[index].lastSyncAttemptedAt,
     calendarEventId: syncResult.calendar.externalId,
     reminderEventId: syncResult.calendar.reminderExternalId ?? tasks[index].reminderEventId ?? null,
     googleTaskId: syncResult.tasks.externalId
@@ -218,7 +360,9 @@ export async function retryTaskSync(taskId: string, session: GoogleTokens | null
 export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
   const tasks = await listTasks(session);
   const failedTargets = tasks.filter(
-    (task) => task.calendarSync !== "synced" || task.tasksSync !== "synced"
+    (task) =>
+      (task.syncToCalendar && task.calendarSync !== "synced") ||
+      (task.syncToTasks && task.tasksSync !== "synced")
   );
 
   if (failedTargets.length === 0) {
@@ -229,10 +373,39 @@ export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
     const refreshed: TaskRecord[] = [];
 
     for (const task of failedTargets) {
-      refreshed.push(await syncGoogleBackedTask(task, session));
+      if (task.syncToTasks) {
+        refreshed.push(await syncGoogleBackedTask(task, session));
+        continue;
+      }
+
+      const syncResult = await syncStoredTaskToGoogle(task, session);
+      refreshed.push(
+        normalizeTaskRecord({
+          ...task,
+          updatedAt: new Date().toISOString(),
+          calendarSync: syncResult.calendar.status,
+          tasksSync: syncResult.tasks.status,
+          calendarSyncMessage: syncResult.calendar.message,
+          tasksSyncMessage: syncResult.tasks.message,
+          lastSyncAttemptedAt: task.syncToCalendar ? new Date().toISOString() : task.lastSyncAttemptedAt,
+          calendarEventId: syncResult.calendar.externalId,
+          reminderEventId: syncResult.calendar.reminderExternalId ?? task.reminderEventId ?? null,
+          googleTaskId: syncResult.tasks.externalId
+        })
+      );
     }
 
-    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    const syncedDriveOnly = refreshed.filter((task) => task.syncToTasks === false);
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      [
+        ...(await listGoogleDriveOnlyTasks(session)).filter(
+          (task) => !syncedDriveOnly.some((item) => item.id === task.id)
+        ),
+        ...syncedDriveOnly
+      ],
+      session
+    );
     return refreshed;
   }
 
@@ -254,7 +427,10 @@ export async function retryFailedTaskSyncs(session: GoogleTokens | null) {
       tasksSync: syncResult.tasks.status,
       calendarSyncMessage: syncResult.calendar.message,
       tasksSyncMessage: syncResult.tasks.message,
-      lastSyncAttemptedAt: new Date().toISOString(),
+      lastSyncAttemptedAt:
+        updatedTasks[index].syncToCalendar || updatedTasks[index].syncToTasks
+          ? new Date().toISOString()
+          : updatedTasks[index].lastSyncAttemptedAt,
       calendarEventId: syncResult.calendar.externalId,
       reminderEventId:
         syncResult.calendar.reminderExternalId ?? updatedTasks[index].reminderEventId ?? null,
@@ -285,7 +461,11 @@ export async function deleteTask(taskId: string, session: GoogleTokens | null) {
       tasks.filter((item) => item.id !== taskId)
     );
   } else {
-    await writeGoogleDriveTaskSnapshot(await listGoogleBackedTasks(session), session).catch(() => null);
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      (await listGoogleDriveOnlyTasks(session)).filter((item) => item.id !== taskId),
+      session
+    );
   }
 
   return true;
@@ -315,38 +495,65 @@ export async function importTasksBackup(backup: TaskBackup, session: GoogleToken
   }
 
   if (getTaskStorageProvider() === "google") {
-    const normalized = [...backup.tasks].sort((left, right) =>
+    const normalized = [...backup.tasks].map((task) => normalizeTaskRecord(task)).sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt)
     );
 
     for (const task of normalized.reverse()) {
-      await createGoogleBackedTask(
-        {
-          title: task.title,
-          dueDate: task.dueDate ?? "",
-          endDate: task.endDate ?? task.dueDate ?? "",
-          reminderHoursBefore: task.reminderHoursBefore ?? undefined,
-          dailyReminderHour: task.dailyReminderHour ?? undefined,
-          notes: task.notes,
-          projectName: task.projectName ?? "",
-          categoryName: task.categoryName ?? "",
-          memberEmails: task.memberEmails ?? []
-        },
-        session,
-        {
-          id: task.id,
-          createdAt: task.createdAt,
-          completed: task.completed
-        }
+      if (task.syncToTasks) {
+        await createGoogleBackedTask(
+          {
+            title: task.title,
+            dueDate: task.dueDate ?? "",
+            endDate: task.endDate ?? task.dueDate ?? "",
+            syncToCalendar: task.syncToCalendar,
+            syncToTasks: true,
+            reminderHoursBefore: task.reminderHoursBefore ?? undefined,
+            dailyReminderHour: task.dailyReminderHour ?? undefined,
+            notes: task.notes,
+            projectName: task.projectName ?? "",
+            categoryName: task.categoryName ?? "",
+            memberEmails: task.memberEmails ?? []
+          },
+          session,
+          {
+            id: task.id,
+            createdAt: task.createdAt,
+            completed: task.completed
+          }
+        );
+        continue;
+      }
+
+      const syncResult = await syncStoredTaskToGoogle(task, session);
+      const imported = normalizeTaskRecord({
+        ...task,
+        calendarSync: syncResult.calendar.status,
+        tasksSync: syncResult.tasks.status,
+        calendarSyncMessage: syncResult.calendar.message,
+        tasksSyncMessage: syncResult.tasks.message,
+        lastSyncAttemptedAt: task.syncToCalendar ? new Date().toISOString() : task.lastSyncAttemptedAt,
+        calendarEventId: syncResult.calendar.externalId,
+        reminderEventId: syncResult.calendar.reminderExternalId ?? task.reminderEventId ?? null,
+        googleTaskId: syncResult.tasks.externalId
+      });
+      await saveGoogleTaskSnapshot(
+        await listGoogleBackedTasks(session),
+        [...(await listGoogleDriveOnlyTasks(session)), imported],
+        session
       );
     }
 
     const tasks = await listTasks(session);
-    await writeGoogleDriveTaskSnapshot(tasks, session).catch(() => null);
+    await saveGoogleTaskSnapshot(
+      await listGoogleBackedTasks(session),
+      tasks.filter((task) => task.syncToTasks === false),
+      session
+    );
     return tasks;
   }
 
-  const normalized = [...backup.tasks].sort((left, right) =>
+  const normalized = [...backup.tasks].map((task) => normalizeTaskRecord(task)).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt)
   );
 

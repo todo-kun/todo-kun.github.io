@@ -6,6 +6,8 @@ export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Task title is required.").max(120),
   dueDate: z.string().optional(),
   endDate: z.string().optional(),
+  syncToCalendar: z.boolean().optional(),
+  syncToTasks: z.boolean().optional(),
   reminderHoursBefore: z.number().int().min(0).max(672).optional(),
   dailyReminderHour: z.number().int().min(0).max(23).optional(),
   notes: z.string().max(1000).optional(),
@@ -31,7 +33,7 @@ export const memberDirectoryEntrySchema = z.object({
   projectNames: z.array(z.string().trim().min(1).max(80)).max(20).optional()
 });
 
-export type SyncState = "synced" | "not_connected" | "missing_config" | "failed";
+export type SyncState = "synced" | "not_connected" | "missing_config" | "failed" | "disabled";
 
 export type TaskInput = z.infer<typeof taskInputSchema>;
 export type TaxonomyKind = z.infer<typeof taxonomyKindSchema>;
@@ -52,6 +54,8 @@ export type TaskRecord = {
   title: string;
   dueDate: string | null;
   endDate: string | null;
+  syncToCalendar: boolean;
+  syncToTasks: boolean;
   reminderHoursBefore: number | null;
   dailyReminderHour: number | null;
   notes: string;

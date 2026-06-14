@@ -51,6 +51,8 @@ type ManagedTaskMetadata = {
   id: string;
   dueDate: string | null;
   endDate: string | null;
+  syncToCalendar: boolean;
+  syncToTasks: boolean;
   reminderHoursBefore: number | null;
   dailyReminderHour: number | null;
   projectName: string;
@@ -71,6 +73,14 @@ const taskMetadataMarker = "[TODOKUN_META]";
 const calendarTaskIdKey = "todokunTaskId";
 const reminderTaskIdKey = "todokunReminderTaskId";
 const googleCalendarTimeZone = "Asia/Tokyo";
+
+function shouldSyncCalendar(task: Pick<TaskInput, "syncToCalendar"> | Pick<TaskRecord, "syncToCalendar">) {
+  return task.syncToCalendar !== false;
+}
+
+function shouldSyncTasks(task: Pick<TaskInput, "syncToTasks"> | Pick<TaskRecord, "syncToTasks">) {
+  return task.syncToTasks !== false;
+}
 
 export async function hasGoogleOAuthConfig() {
   const config = await getAppConfig();
@@ -180,6 +190,8 @@ function buildManagedTaskMetadata(task: Pick<
   | "id"
   | "dueDate"
   | "endDate"
+  | "syncToCalendar"
+  | "syncToTasks"
   | "reminderHoursBefore"
   | "dailyReminderHour"
   | "projectName"
@@ -200,6 +212,8 @@ function buildManagedTaskMetadata(task: Pick<
     id: task.id,
     dueDate: task.dueDate,
     endDate: task.endDate,
+    syncToCalendar: task.syncToCalendar,
+    syncToTasks: task.syncToTasks,
     reminderHoursBefore: task.reminderHoursBefore,
     dailyReminderHour: task.dailyReminderHour,
     projectName: task.projectName,
@@ -224,6 +238,8 @@ export function encodeManagedTaskNotes(
     | "id"
     | "dueDate"
     | "endDate"
+    | "syncToCalendar"
+    | "syncToTasks"
     | "reminderHoursBefore"
     | "dailyReminderHour"
     | "projectName"
@@ -308,6 +324,15 @@ function createReminderUntil(date: string) {
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z");
+}
+
+function createDisabledSyncResult(message = "Not selected for sync."): SyncResult {
+  return {
+    status: "disabled",
+    externalId: null,
+    reminderExternalId: null,
+    message
+  };
 }
 
 function buildDailyReminderEventRequestBody(
@@ -644,17 +669,19 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           continue;
         }
 
-        const resolution = await resolveCalendarEventId(
-          calendar,
-          calendarId,
-          {
-            id: metadata.id,
-            title: item.title ?? "Untitled task",
-            notes,
-            dueDate: metadata.dueDate ?? item.due ?? null
-          },
-          metadata.calendarEventId
-        );
+        const resolution = metadata.syncToCalendar === false
+          ? { eventId: null, deletedExternally: false }
+          : await resolveCalendarEventId(
+              calendar,
+              calendarId,
+              {
+                id: metadata.id,
+                title: item.title ?? "Untitled task",
+                notes,
+                dueDate: metadata.dueDate ?? item.due ?? null
+              },
+              metadata.calendarEventId
+            );
 
         if (item.id && resolution.deletedExternally) {
           await tasksApi.tasks
@@ -673,6 +700,8 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           title: item.title ?? "Untitled task",
           dueDate: metadata.dueDate ?? item.due ?? null,
           endDate: metadata.endDate ?? metadata.dueDate ?? item.due ?? null,
+          syncToCalendar: metadata.syncToCalendar !== false,
+          syncToTasks: metadata.syncToTasks !== false,
           reminderHoursBefore: metadata.reminderHoursBefore ?? null,
           dailyReminderHour: metadata.dailyReminderHour ?? null,
           notes,
@@ -682,11 +711,13 @@ export async function listGoogleBackedTasks(session: GoogleTokens | null): Promi
           createdAt: metadata.createdAt,
           updatedAt: metadata.updatedAt ?? item.updated ?? metadata.createdAt,
           completed: item.status === "completed",
-          calendarSync: calendarEventId ? "synced" : metadata.calendarSync ?? "failed",
+          calendarSync: metadata.syncToCalendar === false ? "disabled" : calendarEventId ? "synced" : metadata.calendarSync ?? "failed",
           tasksSync: item.id ? "synced" : metadata.tasksSync ?? "failed",
           calendarSyncMessage: calendarEventId
             ? "Calendar synced successfully."
-            : metadata.calendarSyncMessage ?? "Calendar sync needs attention.",
+            : metadata.syncToCalendar === false
+              ? "Not selected for sync."
+              : metadata.calendarSyncMessage ?? "Calendar sync needs attention.",
           tasksSyncMessage: item.id
             ? "Google Tasks synced successfully."
             : metadata.tasksSyncMessage ?? "Google Tasks sync needs attention.",
@@ -736,6 +767,8 @@ export async function createGoogleBackedTask(
     title: input.title,
     dueDate: input.dueDate || null,
     endDate: input.endDate || input.dueDate || null,
+    syncToCalendar: shouldSyncCalendar(input),
+    syncToTasks: shouldSyncTasks(input),
     reminderHoursBefore: input.reminderHoursBefore ?? null,
     dailyReminderHour: input.dailyReminderHour ?? null,
     notes: input.notes ?? "",
@@ -771,25 +804,30 @@ export async function createGoogleBackedTask(
     ? "Google Tasks synced successfully."
     : "Google Tasks sync failed.";
 
-  try {
-    const calendarResponse = await calendar.events.insert({
-      calendarId: config.googleCalendarId || "primary",
-      requestBody: buildCalendarEventRequestBody(record),
-      sendUpdates: "all"
-    });
+  if (!record.syncToCalendar) {
+    record.calendarSync = "disabled";
+    record.calendarSyncMessage = "Not selected for sync.";
+  } else {
+    try {
+      const calendarResponse = await calendar.events.insert({
+        calendarId: config.googleCalendarId || "primary",
+        requestBody: buildCalendarEventRequestBody(record),
+        sendUpdates: "all"
+      });
 
-    record.calendarEventId = calendarResponse.data.id ?? null;
-    record.reminderEventId = await syncDailyReminderEvent(
-      calendar,
-      config.googleCalendarId || "primary",
-      record
-    );
-    record.calendarSync = "synced";
-    record.calendarSyncMessage = "Calendar synced successfully.";
-  } catch (error) {
-    record.calendarSync = "failed";
-    record.calendarSyncMessage =
-      error instanceof Error ? error.message : "Calendar sync failed.";
+      record.calendarEventId = calendarResponse.data.id ?? null;
+      record.reminderEventId = await syncDailyReminderEvent(
+        calendar,
+        config.googleCalendarId || "primary",
+        record
+      );
+      record.calendarSync = "synced";
+      record.calendarSyncMessage = "Calendar synced successfully.";
+    } catch (error) {
+      record.calendarSync = "failed";
+      record.calendarSyncMessage =
+        error instanceof Error ? error.message : "Calendar sync failed.";
+    }
   }
 
   if (record.googleTaskId) {
@@ -819,32 +857,41 @@ export async function syncGoogleBackedTask(task: TaskRecord, session: GoogleToke
     lastSyncAttemptedAt: new Date().toISOString()
   };
 
-  try {
-    const calendarResponse = nextTask.calendarEventId
-      ? await calendar.events.update({
-          calendarId: config.googleCalendarId || "primary",
-          eventId: nextTask.calendarEventId,
-          requestBody: buildCalendarEventRequestBody(nextTask),
-          sendUpdates: "all"
-        })
-      : await calendar.events.insert({
-          calendarId: config.googleCalendarId || "primary",
-          requestBody: buildCalendarEventRequestBody(nextTask),
-          sendUpdates: "all"
-        });
+  if (!nextTask.syncToCalendar) {
+    await deleteCalendarEventIfPresent(calendar, config.googleCalendarId || "primary", nextTask.calendarEventId);
+    await deleteCalendarEventIfPresent(calendar, config.googleCalendarId || "primary", nextTask.reminderEventId);
+    nextTask.calendarEventId = null;
+    nextTask.reminderEventId = null;
+    nextTask.calendarSync = "disabled";
+    nextTask.calendarSyncMessage = "Not selected for sync.";
+  } else {
+    try {
+      const calendarResponse = nextTask.calendarEventId
+        ? await calendar.events.update({
+            calendarId: config.googleCalendarId || "primary",
+            eventId: nextTask.calendarEventId,
+            requestBody: buildCalendarEventRequestBody(nextTask),
+            sendUpdates: "all"
+          })
+        : await calendar.events.insert({
+            calendarId: config.googleCalendarId || "primary",
+            requestBody: buildCalendarEventRequestBody(nextTask),
+            sendUpdates: "all"
+          });
 
-    nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
-    nextTask.reminderEventId = await syncDailyReminderEvent(
-      calendar,
-      config.googleCalendarId || "primary",
-      nextTask
-    );
-    nextTask.calendarSync = "synced";
-    nextTask.calendarSyncMessage = "Calendar synced successfully.";
-  } catch (error) {
-    nextTask.calendarSync = "failed";
-    nextTask.calendarSyncMessage =
-      error instanceof Error ? error.message : "Calendar sync failed.";
+      nextTask.calendarEventId = calendarResponse.data.id ?? nextTask.calendarEventId ?? null;
+      nextTask.reminderEventId = await syncDailyReminderEvent(
+        calendar,
+        config.googleCalendarId || "primary",
+        nextTask
+      );
+      nextTask.calendarSync = "synced";
+      nextTask.calendarSyncMessage = "Calendar synced successfully.";
+    } catch (error) {
+      nextTask.calendarSync = "failed";
+      nextTask.calendarSyncMessage =
+        error instanceof Error ? error.message : "Calendar sync failed.";
+    }
   }
 
   try {
@@ -901,212 +948,282 @@ export async function syncTaskToGoogle(
   input: TaskInput,
   session: GoogleTokens | null
 ): Promise<{ calendar: SyncResult; tasks: SyncResult }> {
+  const wantsCalendar = shouldSyncCalendar(input);
+  const wantsTasks = shouldSyncTasks(input);
+
+  if (!wantsCalendar && !wantsTasks) {
+    return {
+      calendar: createDisabledSyncResult(),
+      tasks: createDisabledSyncResult()
+    };
+  }
+
   if (!(await hasGoogleOAuthConfig())) {
     return {
-      calendar: {
-        status: "missing_config",
-        externalId: null,
-        message: "Google settings are incomplete."
-      },
-      tasks: {
-        status: "missing_config",
-        externalId: null,
-        message: "Google settings are incomplete."
-      }
+      calendar: wantsCalendar
+        ? {
+            status: "missing_config",
+            externalId: null,
+            message: "Google settings are incomplete."
+          }
+        : createDisabledSyncResult(),
+      tasks: wantsTasks
+        ? {
+            status: "missing_config",
+            externalId: null,
+            message: "Google settings are incomplete."
+          }
+        : createDisabledSyncResult()
     };
   }
 
   if (!session?.access_token && !session?.refresh_token) {
     return {
-      calendar: {
-        status: "not_connected",
-        externalId: null,
-        message: "Connect your Google account first."
-      },
-      tasks: {
-        status: "not_connected",
-        externalId: null,
-        message: "Connect your Google account first."
-      }
+      calendar: wantsCalendar
+        ? {
+            status: "not_connected",
+            externalId: null,
+            message: "Connect your Google account first."
+          }
+        : createDisabledSyncResult(),
+      tasks: wantsTasks
+        ? {
+            status: "not_connected",
+            externalId: null,
+            message: "Connect your Google account first."
+          }
+        : createDisabledSyncResult()
     };
   }
 
-  try {
-    const auth = await buildAuthorizedClient(session);
-    const config = await getAppConfig();
-    const calendar = google.calendar({ version: "v3", auth });
-    const tasks = google.tasks({ version: "v1", auth });
-    const eventBody = buildCalendarEventRequestBody({
-      id: randomUUID(),
-      title: input.title,
-      notes: input.notes ?? "",
-      dueDate: input.dueDate || null,
-      endDate: input.endDate || input.dueDate || null,
-      memberEmails: input.memberEmails ?? [],
-      reminderHoursBefore: input.reminderHoursBefore ?? null
-    });
-    const calendarId = config.googleCalendarId || "primary";
+  const auth = await buildAuthorizedClient(session);
+  const config = await getAppConfig();
+  const calendar = google.calendar({ version: "v3", auth });
+  const tasks = google.tasks({ version: "v1", auth });
+  const calendarId = config.googleCalendarId || "primary";
+  let calendarResult: SyncResult = createDisabledSyncResult();
+  let tasksResult: SyncResult = createDisabledSyncResult();
 
-    const [calendarResponse, tasksResponse] = await Promise.all([
-      calendar.events.insert({
+  if (wantsCalendar) {
+    try {
+      const eventBody = buildCalendarEventRequestBody({
+        id: randomUUID(),
+        title: input.title,
+        notes: input.notes ?? "",
+        dueDate: input.dueDate || null,
+        endDate: input.endDate || input.dueDate || null,
+        memberEmails: input.memberEmails ?? [],
+        reminderHoursBefore: input.reminderHoursBefore ?? null
+      });
+      const calendarResponse = await calendar.events.insert({
         calendarId,
         requestBody: eventBody,
         sendUpdates: "all"
-      }),
-      tasks.tasks.insert({
+      });
+      const reminderResponse = await buildDailyReminderEventRequestBody({
+        id: randomUUID(),
+        title: input.title,
+        notes: input.notes ?? "",
+        dueDate: input.dueDate || null,
+        endDate: input.endDate || input.dueDate || null,
+        memberEmails: input.memberEmails ?? [],
+        dailyReminderHour: input.dailyReminderHour ?? null
+      });
+      const insertedReminder = reminderResponse
+        ? await calendar.events.insert({
+            calendarId,
+            requestBody: reminderResponse,
+            sendUpdates: "all"
+          })
+        : null;
+
+      calendarResult = {
+        status: "synced",
+        externalId: calendarResponse.data.id ?? null,
+        reminderExternalId: insertedReminder?.data.id ?? null,
+        message: "Calendar synced successfully."
+      };
+    } catch (error) {
+      calendarResult = {
+        status: "failed",
+        externalId: null,
+        reminderExternalId: null,
+        message: error instanceof Error ? error.message : "Unknown sync error."
+      };
+    }
+  }
+
+  if (wantsTasks) {
+    try {
+      const tasksResponse = await tasks.tasks.insert({
         tasklist: config.googleTasksListId || "@default",
         requestBody: {
           title: input.title,
           notes: input.notes,
           due: (input.endDate ?? input.dueDate) ? new Date(input.endDate ?? input.dueDate ?? "").toISOString() : undefined
         }
-      })
-    ]);
-    const reminderResponse = await buildDailyReminderEventRequestBody({
-      id: randomUUID(),
-      title: input.title,
-      notes: input.notes ?? "",
-      dueDate: input.dueDate || null,
-      endDate: input.endDate || input.dueDate || null,
-      memberEmails: input.memberEmails ?? [],
-      dailyReminderHour: input.dailyReminderHour ?? null
-    });
-    const insertedReminder = reminderResponse
-      ? await calendar.events.insert({
-          calendarId,
-          requestBody: reminderResponse,
-          sendUpdates: "all"
-        })
-      : null;
+      });
 
-    return {
-      calendar: {
-        status: "synced",
-        externalId: calendarResponse.data.id ?? null,
-        reminderExternalId: insertedReminder?.data.id ?? null,
-        message: "Calendar synced successfully."
-      },
-      tasks: {
+      tasksResult = {
         status: "synced",
         externalId: tasksResponse.data.id ?? null,
         message: "Google Tasks synced successfully."
-      }
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown sync error.";
-    return {
-      calendar: { status: "failed", externalId: null, message },
-      tasks: { status: "failed", externalId: null, message }
-    };
+      };
+    } catch (error) {
+      tasksResult = {
+        status: "failed",
+        externalId: null,
+        message: error instanceof Error ? error.message : "Unknown sync error."
+      };
+    }
   }
+
+  return {
+    calendar: calendarResult,
+    tasks: tasksResult
+  };
 }
 
 export async function syncStoredTaskToGoogle(
   task: TaskRecord,
   session: GoogleTokens | null
 ): Promise<{ calendar: SyncResult; tasks: SyncResult }> {
+  const wantsCalendar = task.syncToCalendar;
+  const wantsTasks = task.syncToTasks;
+
+  if (!wantsCalendar && !wantsTasks) {
+    return {
+      calendar: createDisabledSyncResult(),
+      tasks: createDisabledSyncResult()
+    };
+  }
+
   if (!(await hasGoogleOAuthConfig())) {
     return {
-      calendar: {
-        status: "missing_config",
-        externalId: task.calendarEventId,
-        message: "Google settings are incomplete."
-      },
-      tasks: {
-        status: "missing_config",
-        externalId: task.googleTaskId,
-        message: "Google settings are incomplete."
-      }
+      calendar: wantsCalendar
+        ? {
+            status: "missing_config",
+            externalId: task.calendarEventId,
+            reminderExternalId: task.reminderEventId,
+            message: "Google settings are incomplete."
+          }
+        : createDisabledSyncResult(),
+      tasks: wantsTasks
+        ? {
+            status: "missing_config",
+            externalId: task.googleTaskId,
+            message: "Google settings are incomplete."
+          }
+        : createDisabledSyncResult()
     };
   }
 
   if (!session?.access_token && !session?.refresh_token) {
     return {
-      calendar: {
-        status: "not_connected",
-        externalId: task.calendarEventId,
-        message: "Connect your Google account first."
-      },
-      tasks: {
-        status: "not_connected",
-        externalId: task.googleTaskId,
-        message: "Connect your Google account first."
-      }
+      calendar: wantsCalendar
+        ? {
+            status: "not_connected",
+            externalId: task.calendarEventId,
+            reminderExternalId: task.reminderEventId,
+            message: "Connect your Google account first."
+          }
+        : createDisabledSyncResult(),
+      tasks: wantsTasks
+        ? {
+            status: "not_connected",
+            externalId: task.googleTaskId,
+            message: "Connect your Google account first."
+          }
+        : createDisabledSyncResult()
     };
   }
 
-  try {
-    const auth = await buildAuthorizedClient(session);
-    const config = await getAppConfig();
-    const calendar = google.calendar({ version: "v3", auth });
-    const tasks = google.tasks({ version: "v1", auth });
-    const eventBody = buildCalendarEventRequestBody(task);
-    const taskStatus = task.completed ? "completed" : "needsAction";
-    const calendarId = config.googleCalendarId || "primary";
+  const auth = await buildAuthorizedClient(session);
+  const config = await getAppConfig();
+  const calendar = google.calendar({ version: "v3", auth });
+  const tasks = google.tasks({ version: "v1", auth });
+  const taskStatus = task.completed ? "completed" : "needsAction";
+  const calendarId = config.googleCalendarId || "primary";
+  let calendarResult: SyncResult = createDisabledSyncResult();
+  let tasksResult: SyncResult = createDisabledSyncResult();
 
-    const calendarResponse = task.calendarEventId
-      ? await calendar.events.update({
-          calendarId,
-          eventId: task.calendarEventId,
-          requestBody: eventBody,
-          sendUpdates: "all"
-        })
-      : await calendar.events.insert({
-          calendarId,
-          requestBody: eventBody,
-          sendUpdates: "all"
-        });
-    const reminderEventId = await syncDailyReminderEvent(calendar, calendarId, task);
+  if (wantsCalendar) {
+    try {
+      const eventBody = buildCalendarEventRequestBody(task);
+      const calendarResponse = task.calendarEventId
+        ? await calendar.events.update({
+            calendarId,
+            eventId: task.calendarEventId,
+            requestBody: eventBody,
+            sendUpdates: "all"
+          })
+        : await calendar.events.insert({
+            calendarId,
+            requestBody: eventBody,
+            sendUpdates: "all"
+          });
+      const reminderEventId = await syncDailyReminderEvent(calendar, calendarId, task);
 
-    const tasksResponse = task.googleTaskId
-      ? await tasks.tasks.update({
-          tasklist: config.googleTasksListId || "@default",
-          task: task.googleTaskId,
-          requestBody: {
-            title: task.title,
-            notes: task.notes,
-            due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
-            status: taskStatus
-          }
-        })
-      : await tasks.tasks.insert({
-          tasklist: config.googleTasksListId || "@default",
-          requestBody: {
-            title: task.title,
-            notes: task.notes,
-            due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
-            status: taskStatus
-          }
-        });
-
-    return {
-      calendar: {
+      calendarResult = {
         status: "synced",
         externalId: calendarResponse.data.id ?? task.calendarEventId ?? null,
         reminderExternalId: reminderEventId,
         message: "Calendar synced successfully."
-      },
-      tasks: {
+      };
+    } catch (error) {
+      calendarResult = {
+        status: "failed",
+        externalId: task.calendarEventId,
+        reminderExternalId: task.reminderEventId,
+        message: error instanceof Error ? error.message : "Unknown sync error."
+      };
+    }
+  } else {
+    await deleteCalendarEventIfPresent(calendar, calendarId, task.calendarEventId);
+    await deleteCalendarEventIfPresent(calendar, calendarId, task.reminderEventId);
+  }
+
+  if (wantsTasks) {
+    try {
+      const tasksResponse = task.googleTaskId
+        ? await tasks.tasks.update({
+            tasklist: config.googleTasksListId || "@default",
+            task: task.googleTaskId,
+            requestBody: {
+              title: task.title,
+              notes: task.notes,
+              due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
+              status: taskStatus
+            }
+          })
+        : await tasks.tasks.insert({
+            tasklist: config.googleTasksListId || "@default",
+            requestBody: {
+              title: task.title,
+              notes: task.notes,
+              due: (task.endDate ?? task.dueDate) ? new Date(task.endDate ?? task.dueDate ?? "").toISOString() : undefined,
+              status: taskStatus
+            }
+          });
+
+      tasksResult = {
         status: "synced",
         externalId: tasksResponse.data.id ?? task.googleTaskId ?? null,
         message: "Google Tasks synced successfully."
-      }
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown sync error.";
-    return {
-      calendar: {
-        status: "failed",
-        externalId: task.calendarEventId,
-        message
-      },
-      tasks: {
+      };
+    } catch (error) {
+      tasksResult = {
         status: "failed",
         externalId: task.googleTaskId,
-        message
-      }
-    };
+        message: error instanceof Error ? error.message : "Unknown sync error."
+      };
+    }
   }
+
+  return {
+    calendar: calendarResult,
+    tasks: tasksResult
+  };
 }
 
 export async function deleteTaskFromGoogle(task: TaskRecord, session: GoogleTokens | null) {

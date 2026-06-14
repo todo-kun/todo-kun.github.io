@@ -43,6 +43,8 @@ test("task lifecycle works end to end without Google config", async () => {
   assert.equal(created.categoryName, "資料作成");
   assert.deepEqual(created.memberEmails, ["member1@example.com", "member2@example.com"]);
   assert.equal(created.completed, false);
+  assert.equal(created.syncToCalendar, true);
+  assert.equal(created.syncToTasks, true);
   assert.equal(created.calendarSync, "missing_config");
   assert.equal(created.tasksSync, "missing_config");
   assert.equal(created.calendarSyncMessage, "Google settings are incomplete.");
@@ -112,6 +114,36 @@ test("tasks are persisted to the local data file", async () => {
   assert.equal(parsed[0]?.categoryName, "メール送信");
   assert.deepEqual(parsed[0]?.memberEmails, ["buyer@example.com"]);
   assert.equal(parsed[0]?.calendarSyncMessage, "Google settings are incomplete.");
+});
+
+test("tasks can be saved only inside the app without Google sync", async () => {
+  const tasksModule = await import("../lib/tasks");
+
+  const created = await tasksModule.createTaskAndSync(
+    {
+      title: "Internal memo task",
+      dueDate: "2026-06-21",
+      endDate: "2026-06-22",
+      syncToCalendar: false,
+      syncToTasks: false,
+      notes: "Only keep this inside Todokun"
+    },
+    null
+  );
+
+  assert.equal(created.syncToCalendar, false);
+  assert.equal(created.syncToTasks, false);
+  assert.equal(created.calendarSync, "disabled");
+  assert.equal(created.tasksSync, "disabled");
+  assert.equal(created.calendarSyncMessage, "Not selected for sync.");
+  assert.equal(created.tasksSyncMessage, "Not selected for sync.");
+  assert.equal(created.calendarEventId, null);
+  assert.equal(created.googleTaskId, null);
+
+  const stored = await tasksModule.listTasks();
+  assert.equal(stored[0]?.title, "Internal memo task");
+  assert.equal(stored[0]?.syncToCalendar, false);
+  assert.equal(stored[0]?.syncToTasks, false);
 });
 
 test("tasks can be exported and imported as a backup", async () => {

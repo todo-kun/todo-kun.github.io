@@ -81,13 +81,16 @@ const syncLabels = {
   synced: "連携済み",
   not_connected: "Google未連携",
   missing_config: "設定不足",
-  failed: "連携エラー"
+  failed: "連携エラー",
+  disabled: "追加しない"
 } as const;
 
 const emptyForm = {
   title: "",
   dueDate: "",
   endDate: "",
+  syncToCalendar: true,
+  syncToTasks: true,
   reminderHoursBefore: "",
   dailyReminderHour: "",
   notes: "",
@@ -331,6 +334,8 @@ export function HomeClient({
             title: form.title,
             dueDate: toApiDateValue(form.dueDate),
             endDate: toApiDateValue(form.endDate),
+            syncToCalendar: form.syncToCalendar,
+            syncToTasks: form.syncToTasks,
             reminderHoursBefore: form.reminderHoursBefore ? Number(form.reminderHoursBefore) : undefined,
             dailyReminderHour: form.dailyReminderHour ? Number(form.dailyReminderHour) : undefined,
             notes: form.notes,
@@ -595,6 +600,8 @@ export function HomeClient({
       title: task.title,
       dueDate: toDateInputValue(task.dueDate),
       endDate: toDateInputValue(task.endDate),
+      syncToCalendar: task.syncToCalendar,
+      syncToTasks: task.syncToTasks,
       reminderHoursBefore:
         task.reminderHoursBefore === null || task.reminderHoursBefore === undefined
           ? ""
@@ -663,6 +670,8 @@ export function HomeClient({
                   title: targetTask.title,
                   dueDate: targetTask.dueDate ?? "",
                   endDate: targetTask.endDate ?? targetTask.dueDate ?? "",
+                  syncToCalendar: targetTask.syncToCalendar,
+                  syncToTasks: targetTask.syncToTasks,
                   reminderHoursBefore: targetTask.reminderHoursBefore ?? undefined,
                   dailyReminderHour: targetTask.dailyReminderHour ?? undefined,
                   notes: targetTask.notes,
@@ -966,10 +975,46 @@ export function HomeClient({
             />
           </label>
 
+          <div className="task-chip-row">
+            <label className="member-option">
+              <input
+                checked={form.syncToCalendar}
+                disabled={Boolean(editingTaskId)}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, syncToCalendar: event.target.checked }))
+                }
+                type="checkbox"
+              />
+              <div>
+                <strong>Google カレンダーに追加する</strong>
+                <span>オフにするとアプリ内だけに保存されます</span>
+              </div>
+            </label>
+            <label className="member-option">
+              <input
+                checked={form.syncToTasks}
+                disabled={Boolean(editingTaskId)}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, syncToTasks: event.target.checked }))
+                }
+                type="checkbox"
+              />
+              <div>
+                <strong>Google To Do に追加する</strong>
+                <span>オフにすると To Do には登録されません</span>
+              </div>
+            </label>
+          </div>
+
+          {editingTaskId ? (
+            <p className="member-picker-empty">連携先の変更は新規登録時に選べます。編集では現在の設定を維持します。</p>
+          ) : null}
+
           <label>
             終了日の何時間前に通知
             <select
               value={form.reminderHoursBefore}
+              disabled={!form.syncToCalendar}
               onChange={(event) =>
                 setForm((current) => ({ ...current, reminderHoursBefore: event.target.value }))
               }
@@ -1006,6 +1051,7 @@ export function HomeClient({
             毎日リマインドする時刻
             <select
               value={form.dailyReminderHour}
+              disabled={!form.syncToCalendar}
               onChange={(event) =>
                 setForm((current) => ({ ...current, dailyReminderHour: event.target.value }))
               }
@@ -1435,6 +1481,9 @@ export function HomeClient({
                   <div className="task-chip-row">
                     {task.projectName ? <span className="task-chip">案件: {task.projectName}</span> : null}
                     {task.categoryName ? <span className="task-chip">種類: {task.categoryName}</span> : null}
+                    {!task.syncToCalendar && !task.syncToTasks ? (
+                      <span className="task-chip">アプリのみ</span>
+                    ) : null}
                     {formatReminderSummary(task) ? (
                       <span className="task-chip">通知: {formatReminderSummary(task)}</span>
                     ) : null}
@@ -1546,7 +1595,13 @@ function formatTaskPeriod(task: Pick<TaskRecord, "dueDate" | "endDate">) {
   return `${formatDate(task.dueDate)}〜${formatDate(task.endDate)}`;
 }
 
-function formatReminderSummary(task: Pick<TaskRecord, "reminderHoursBefore" | "dailyReminderHour">) {
+function formatReminderSummary(
+  task: Pick<TaskRecord, "syncToCalendar" | "reminderHoursBefore" | "dailyReminderHour">
+) {
+  if (!task.syncToCalendar) {
+    return "";
+  }
+
   const labels: string[] = [];
 
   if (task.reminderHoursBefore !== null && task.reminderHoursBefore !== undefined) {

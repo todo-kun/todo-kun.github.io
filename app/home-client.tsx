@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, FormEvent, useEffect, useState, useTransition } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState, useTransition } from "react";
 import type { RegisteredMember, TaskRecord, TaskTaxonomy, TaxonomyKind } from "@/types/task";
 
 type GoogleStatus = {
@@ -270,6 +270,8 @@ export function HomeClient({
   const [isImporting, startImportTransition] = useTransition();
   const [isManagingDirectory, startDirectoryTransition] = useTransition();
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const taskFormRef = useRef<HTMLFormElement | null>(null);
+  const taskTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void refreshStatus();
@@ -635,6 +637,10 @@ export function HomeClient({
       memberEmails: task.memberEmails ?? []
     });
     setMessage(`「${task.title}」を編集中です。`);
+    requestAnimationFrame(() => {
+      taskFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      taskTitleInputRef.current?.focus();
+    });
   }
 
   function cancelEdit() {
@@ -928,7 +934,7 @@ export function HomeClient({
 
         <div className="content-stack">
       <section className="content-grid task-top-section" id="task-create">
-        <form className="task-card" onSubmit={handleSubmit}>
+        <form className="task-card" onSubmit={handleSubmit} ref={taskFormRef}>
           <div className="section-heading">
             <h2>{editingTaskId ? "タスクを編集" : "タスクを登録"}</h2>
             <p>最初に見えるのはこの登録画面だけです。ほかの機能は左のメニューから移動できます。</p>
@@ -937,6 +943,7 @@ export function HomeClient({
           <label>
             タスク名
             <input
+              ref={taskTitleInputRef}
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
               placeholder="例: 補助金資料の最終確認"

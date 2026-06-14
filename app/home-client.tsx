@@ -858,6 +858,17 @@ export function HomeClient({
     <main className="page-shell">
       <div className="app-layout">
         <aside className="sidebar-card">
+          <div className="brand-chip">タスク管理アプリ「トドくん」</div>
+          <div className="sidebar-mascot">
+            <Image
+              alt="トドくんのイメージキャラクター"
+              className="mascot-image"
+              height={220}
+              priority
+              src="/todokun.png"
+              width={220}
+            />
+          </div>
           <div className="action-row sidebar-actions">
             {googleStatus.connected ? (
               <button
@@ -873,17 +884,6 @@ export function HomeClient({
                 Google とつなぐ
               </a>
             )}
-          </div>
-          <div className="brand-chip">タスク管理アプリ「トドくん」</div>
-          <div className="sidebar-mascot">
-            <Image
-              alt="トドくんのイメージキャラクター"
-              className="mascot-image"
-              height={220}
-              priority
-              src="/todokun.png"
-              width={220}
-            />
           </div>
           <div className="status-pill">
             <span className="status-dot" data-active={googleStatus.connected} />

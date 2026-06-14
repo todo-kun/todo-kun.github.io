@@ -1201,6 +1201,7 @@ export function HomeClient({
         </aside>
       </section>
 
+      <div className="deferred-sections">
       <section className="manager-grid">
         <article className="manager-card" id="project-manager">
           <div className="section-heading">
@@ -1550,6 +1551,7 @@ export function HomeClient({
           )}
         </div>
       </section>
+      </div>
         </div>
       </div>
     </main>

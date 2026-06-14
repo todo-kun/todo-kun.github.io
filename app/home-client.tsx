@@ -1461,64 +1461,67 @@ export function HomeClient({
               <p>{tasks.length === 0 ? "まだタスクがありません。最初の1件を登録してみましょう。" : "この条件に合うタスクはありません。"}</p>
             </div>
           ) : (
-            visibleTasks.map((task) => (
-              <article className="task-item" data-completed={task.completed} key={task.id}>
-                <div className="task-main">
-                  <div className="task-title-row">
-                    <h3>{task.title}</h3>
-                  </div>
-                </div>
+            <div className="task-table" role="table" aria-label="タスク一覧">
+              <div className="task-table-row task-table-head" role="row">
+                <span role="columnheader">タスク名</span>
+                <span role="columnheader">プロジェクト名</span>
+                <span role="columnheader">期間</span>
+                <span role="columnheader">参加者</span>
+                <span role="columnheader">メモ</span>
+                <span role="columnheader">操作</span>
+              </div>
 
-                <dl className="task-meta">
-                  <div>
-                    <dt>プロジェクト名</dt>
-                    <dd>{task.projectName || "未設定"}</dd>
+              {visibleTasks.map((task) => (
+                <article className="task-table-row" data-completed={task.completed} key={task.id} role="row">
+                  <div className="task-table-cell task-title-cell" data-label="タスク名" role="cell">
+                    {task.title}
                   </div>
-                  <div>
-                    <dt>期間</dt>
-                    <dd>{formatTaskPeriod(task)}</dd>
+                  <div className="task-table-cell" data-label="プロジェクト名" role="cell">
+                    {task.projectName || "未設定"}
                   </div>
-                  <div>
-                    <dt>参加者</dt>
-                    <dd>{task.memberEmails.length > 0 ? task.memberEmails.join(" / ") : "未設定"}</dd>
+                  <div className="task-table-cell" data-label="期間" role="cell">
+                    {formatTaskPeriod(task)}
                   </div>
-                  <div>
-                    <dt>メモ</dt>
-                    <dd>{task.notes || "メモはまだありません。"}</dd>
+                  <div className="task-table-cell" data-label="参加者" role="cell">
+                    {task.memberEmails.length > 0 ? task.memberEmails.join(" / ") : "未設定"}
                   </div>
-                </dl>
-
-                <div className="task-actions">
-                  <button className="ghost-button" onClick={() => startEdit(task)} type="button">
-                    編集
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={activeTaskId === task.id}
-                    onClick={() => void mutateTask(task.id, "toggle")}
-                    type="button"
-                  >
-                    {task.completed ? "進行中に戻す" : "完了にする"}
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={activeTaskId === task.id}
-                    onClick={() => void mutateTask(task.id, "sync")}
-                    type="button"
-                  >
-                    再連携
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={activeTaskId === task.id}
-                    onClick={() => void mutateTask(task.id, "delete")}
-                    type="button"
-                  >
-                    削除
-                  </button>
-                </div>
-              </article>
-            ))
+                  <div className="task-table-cell task-note-cell" data-label="メモ" role="cell">
+                    {task.notes || "メモはまだありません。"}
+                  </div>
+                  <div className="task-table-cell" data-label="操作" role="cell">
+                    <div className="task-actions">
+                      <button className="ghost-button" onClick={() => startEdit(task)} type="button">
+                        編集
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={activeTaskId === task.id}
+                        onClick={() => void mutateTask(task.id, "toggle")}
+                        type="button"
+                      >
+                        {task.completed ? "戻す" : "完了"}
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={activeTaskId === task.id}
+                        onClick={() => void mutateTask(task.id, "sync")}
+                        type="button"
+                      >
+                        再連携
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={activeTaskId === task.id}
+                        onClick={() => void mutateTask(task.id, "delete")}
+                        type="button"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
           )}
         </div>
       </section>
